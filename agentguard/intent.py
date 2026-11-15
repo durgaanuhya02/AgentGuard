@@ -16,6 +16,7 @@ The judge is swappable. `OllamaJudge` runs a local model for free; any object wi
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from typing import Protocol
@@ -162,9 +163,26 @@ class HybridJudge:
                 or self.model_judge.judge(intent, tool, args, amount_inr, history))
 
 
+class RulesOnlyJudge:
+    """No AI model: the rule pre-check clears clear-cut honest requests, everything else goes to
+    a human. For hosting where no model is available (e.g. a free cloud instance)."""
+
+    def judge(self, intent: str, tool: str, args: dict | None, amount_inr: float,
+              history: list[dict]) -> Verdict:
+        return (precheck(intent, tool, args, amount_inr, history)
+                or Verdict(None, "no AI judge configured; the rule check couldn't clear it"))
+
+
+def judge_kind(settings: dict) -> str:
+    """AGENTGUARD_JUDGE (ollama / rules / off) overrides policies.json, e.g. per deployment."""
+    return (os.getenv("AGENTGUARD_JUDGE") or settings.get("judge") or "off").lower()
+
+
 def build_judge(settings: dict) -> IntentJudge | None:
     """Create the judge named in policies.json `intent_check`, or None if it's turned off."""
-    kind = settings.get("judge")
+    kind = judge_kind(settings)
+    if kind == "rules":
+        return RulesOnlyJudge()
     if kind == "ollama":
         model = OllamaJudge(settings.get("model", "llama3.2"),
                             settings.get("url", "http://127.0.0.1:11434"),

@@ -134,3 +134,19 @@ def test_hybrid_asks_the_model_only_when_needed():
     assert model.calls == []
     assert hybrid.judge("Where is ORD-1001?", "issue_refund", REFUND, 500, []).consistent is None
     assert len(model.calls) == 1
+
+
+def test_judge_mode_can_be_set_per_deployment(monkeypatch):
+    from agentguard.copilot import build_explainer
+    from agentguard.intent import OllamaJudge, RulesOnlyJudge, build_judge
+
+    settings = {"judge": "ollama"}
+    monkeypatch.setenv("AGENTGUARD_JUDGE", "rules")
+    judge = build_judge(settings)
+    assert isinstance(judge, RulesOnlyJudge) and build_explainer(settings) is None
+    assert judge.judge(ASK, "issue_refund", REFUND, 500, []).consistent is True
+    assert judge.judge("Where is ORD-1001?", "issue_refund", REFUND, 500, []).consistent is None
+    monkeypatch.setenv("AGENTGUARD_JUDGE", "off")
+    assert build_judge(settings) is None
+    monkeypatch.delenv("AGENTGUARD_JUDGE")
+    assert isinstance(build_judge(settings).model_judge, OllamaJudge)

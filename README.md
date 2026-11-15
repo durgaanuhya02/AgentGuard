@@ -136,7 +136,7 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-pytest                          # 55 tests
+pytest                          # 57 tests
 uvicorn api.main:app --reload   # API on http://localhost:8000/docs
 
 cd dashboard && npm install && npm run dev -- -p 3001   # dashboard on http://localhost:3001
@@ -179,6 +179,14 @@ create event schemas such as `agent.issue_refund.deny` in the dashboard.
 
 To use the MCP server from an MCP client, point it at `python mcp_server/server.py` (stdio) with
 `AGENTGUARD_URL=http://localhost:8000` and `AGENTGUARD_AGENT_KEY=<the agent's key>`.
+
+## Deploy
+
+- `docker compose up --build` runs the API and dashboard together locally.
+- Cloud: API on Render (`render.yaml`), dashboard on Vercel. Step by step in
+  [docs/DEPLOY.md](docs/DEPLOY.md). In the cloud there's no local model, so `AGENTGUARD_JUDGE=rules`.
+- CI (GitHub Actions) runs the tests, dashboard lint/type-check/build, and both Docker builds.
+- Recording the demo: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
 ## Design notes (good interview material)
 

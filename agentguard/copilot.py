@@ -119,8 +119,10 @@ class OllamaExplainer:
 
 def build_explainer(settings: dict):
     """Uses the `copilot` section of policies.json, falling back to the intent-check model."""
-    if settings.get("judge", "ollama") != "ollama":
-        return None
+    from agentguard.intent import judge_kind
+
+    if judge_kind(settings) != "ollama":
+        return None  # the endpoint then returns the rule-based summary
     return OllamaExplainer(settings.get("model", "llama3.2"),
                            settings.get("url", "http://127.0.0.1:11434"),
                            settings.get("timeout_s", 180))

@@ -84,3 +84,9 @@ def test_agents_overview(client):
     intern = next(a for a in agents if a["id"] == "intern-helper")
     assert intern["blocked_amount_today_inr"] == 700
     assert len(intern["keys"]) == 1
+
+
+def test_health_is_public_and_shows_no_secrets(client):
+    r = client.get("/health")
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert "sk_" not in r.text and "key" not in r.text.lower()

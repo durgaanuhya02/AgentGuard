@@ -133,6 +133,13 @@ def logout(request: Request):
     return RedirectResponse(os.getenv("DASHBOARD_URL", "/"))
 
 
+@app.get("/health")
+def health():
+    """For hosting health checks. Says which optional features are on, never any secrets."""
+    return {"ok": True, "workos": workos_client.configured(),
+            "ai_judge": type(guard().judge).__name__ if guard().judge else None}
+
+
 @app.get("/me")
 def me(request: Request, user_id: str = Depends(current_user)):
     u = guard().policy.users[user_id]

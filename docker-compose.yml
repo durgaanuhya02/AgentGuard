@@ -1,0 +1,28 @@
+# Run the API and dashboard together:  docker compose up --build
+# Dashboard: http://localhost:3001   API docs: http://localhost:8000/docs
+#
+# Inside Docker there's no local Ollama, so the AI intent check runs in "rules" mode (rule
+# pre-check, anything unclear goes to a human). To use your host's Ollama instead, set
+# AGENTGUARD_JUDGE=ollama and point config/policies.json "url" at http://host.docker.internal:11434.
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AGENTGUARD_JUDGE: ${AGENTGUARD_JUDGE:-rules}
+    volumes:
+      - agentguard-data:/data
+
+  dashboard:
+    build:
+      context: ./dashboard
+      args:
+        AGENTGUARD_API_URL: http://api:8000
+    ports: ["3001:3001"]
+    depends_on: [api]
+
+volumes:
+  agentguard-data:

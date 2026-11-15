@@ -1,0 +1,28 @@
+# Render blueprint for the AgentGuard API (render.com -> New -> Blueprint -> this repo).
+# The dashboard goes on Vercel; see docs/DEPLOY.md.
+services:
+  - type: web
+    name: agentguard-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # No Ollama on Render: rule pre-check, anything unclear goes to a human.
+      - key: AGENTGUARD_JUDGE
+        value: rules
+      - key: SESSION_SECRET
+        generateValue: true
+      # Fill these in the Render dashboard (never commit them):
+      - key: WORKOS_API_KEY
+        sync: false
+      - key: WORKOS_CLIENT_ID
+        sync: false
+      - key: WORKOS_ORGANIZATION_ID
+        sync: false
+      - key: AGENTGUARD_USER_EMAILS
+        sync: false
+      # https://<your-dashboard>.vercel.app/api/auth/callback  and  https://<your-dashboard>.vercel.app
+      - key: WORKOS_REDIRECT_URI
+        sync: false
+      - key: DASHBOARD_URL
+        sync: false

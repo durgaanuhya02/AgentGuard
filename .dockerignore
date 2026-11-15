@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+*.db
+__pycache__
+.pytest_cache
+dashboard/node_modules
+dashboard/.next
+tests
+demo
+agent
