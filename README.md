@@ -62,7 +62,11 @@ approval or behaviour-based stopping. AgentGuard is that layer on top:
 - When AgentGuard **freezes** an agent, it also **revokes the agent's WorkOS session**, so its
   tokens stop working everywhere, not just here.
 
-This path is tested against a fake WorkOS client; it hasn't run against live WorkOS yet.
+This path is tested against a fake WorkOS client. Live testing needs Agent Auth enabled on the
+WorkOS account (dashboard → Agents → Agent Auth → *Request access*); once it is, set
+`AGENTGUARD_WORKOS_BLUEPRINTS=support-bot:<blueprint id>` in `.env` and run
+`python scripts/test_workos_agent_auth.py`. It mints a real WorkOS agent token, uses it with
+AgentGuard, triggers a freeze, and checks that WorkOS then rejects the token.
 
 ## Demo
 
@@ -119,7 +123,7 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-pytest                          # 49 tests
+pytest                          # 50 tests
 uvicorn api.main:app --reload   # API on http://localhost:8000/docs
 
 cd dashboard && npm install && npm run dev -- -p 3001   # dashboard on http://localhost:3001

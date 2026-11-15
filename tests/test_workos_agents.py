@@ -83,3 +83,12 @@ def test_audit_sink_uses_registered_actions():
     assert [s["event"].action for s in sent] == list(AUDIT_ACTIONS.values())
     assert set(sent[0]["event"].metadata) == set(AUDIT_METADATA_KEYS)
     assert sent[0]["organization_id"] == "org_1"
+
+
+def test_blueprint_ids_can_come_from_env(monkeypatch):
+    from agentguard.policy import Policy
+
+    monkeypatch.setenv("AGENTGUARD_WORKOS_BLUEPRINTS", "support-bot:bp_live_1, ghost:bp_x")
+    p = Policy.load()
+    assert p.agents["support-bot"].workos_blueprint_id == "bp_live_1"
+    assert p.agents["intern-helper"].workos_blueprint_id is None

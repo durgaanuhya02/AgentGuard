@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -64,6 +65,12 @@ class Policy:
             )
             for aid, a in raw["agents"].items()
         }
+        # Blueprint IDs are per WorkOS environment, so they can also come from .env:
+        # AGENTGUARD_WORKOS_BLUEPRINTS=support-bot:agent_blueprint_01...,intern-helper:...
+        for pair in os.getenv("AGENTGUARD_WORKOS_BLUEPRINTS", "").split(","):
+            aid, _, bp = pair.strip().partition(":")
+            if aid in agents and bp.strip():
+                agents[aid].workos_blueprint_id = bp.strip()
         return cls(roles, users, agents, raw.get("intent_check"))
 
     def effective_tools(self, agent: Agent) -> set[str]:
