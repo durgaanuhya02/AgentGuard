@@ -25,6 +25,11 @@ class ActionRequest:
     # Extra permission ceiling from the agent's credential, e.g. the permissions in a WorkOS agent
     # token. None = no extra ceiling.
     ceiling: set[str] | None = None
+    # The task the agent is working on, in the user's own words (e.g. the customer's message).
+    # Should come from the trusted app layer (the chat front end), not from the agent itself.
+    intent: str | None = None
+    # The tool call's arguments, e.g. {"order_id": "ORD-1002", "amount_inr": 2000}.
+    args: dict | None = None
     at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

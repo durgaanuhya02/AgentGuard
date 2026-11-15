@@ -25,6 +25,7 @@ from starlette.middleware.sessions import SessionMiddleware  # noqa: E402
 
 from agentguard import ActionRequest, Guard  # noqa: E402
 from agentguard import workos_client  # noqa: E402
+from agentguard.intent import build_judge  # noqa: E402
 from agentguard.keys import KeyStore  # noqa: E402
 from agentguard.store import Store, default_db_path  # noqa: E402
 
@@ -35,7 +36,9 @@ def build_guard() -> Guard:
     org = os.getenv("WORKOS_ORGANIZATION_ID")
     if client and org:
         sinks.append(workos_client.audit_sink(client, org))
-    return Guard(store=Store(default_db_path()), sinks=sinks)
+    guard = Guard(store=Store(default_db_path()), sinks=sinks)
+    guard.judge = build_judge(guard.policy.intent_check)
+    return guard
 
 
 def init_state() -> None:
@@ -126,6 +129,9 @@ class CheckBody(BaseModel):
     cost_inr: float = 0.0
     # Optional: if sent, it must match the agent the key belongs to.
     agent_id: str | None = None
+    # The user's request this action serves, and the tool call's arguments (for the AI intent check).
+    intent: str | None = None
+    args: dict | None = None
 
 
 def current_agent(authorization: str | None = Header(default=None)) -> tuple[str, set[str] | None]:
@@ -155,7 +161,7 @@ def check(body: CheckBody, caller: tuple[str, set[str] | None] = Depends(current
     if body.agent_id and body.agent_id != agent_id:
         raise HTTPException(403, f"This credential belongs to '{agent_id}', not '{body.agent_id}'")
     d = guard().check(ActionRequest(agent_id, body.tool, body.amount_inr, body.cost_inr,
-                                    ceiling=ceiling))
+                                    ceiling=ceiling, intent=body.intent, args=body.args))
     return {"outcome": d.outcome.value, "allowed": d.allowed, "reason": d.reason,
             "on_behalf_of": d.on_behalf_of, "approval_id": d.approval_id,
             "anomaly_score": d.anomaly_score}

@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS audit_events (
     cost_inr REAL NOT NULL,
     outcome TEXT NOT NULL,
     reason TEXT NOT NULL,
-    anomaly_score REAL
+    anomaly_score REAL,
+    args_json TEXT,
+    intent TEXT
 );
 CREATE TABLE IF NOT EXISTS approvals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,6 +40,9 @@ CREATE TABLE IF NOT EXISTS approvals (
     tool TEXT NOT NULL,
     amount_inr REAL NOT NULL,
     cost_inr REAL NOT NULL,
+    args_json TEXT,
+    intent TEXT,
+    reason TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     decided_by TEXT,
     decided_at TEXT
@@ -62,17 +67,29 @@ class Store:
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after the first release to an existing database."""
+        wanted = {"audit_events": ["args_json", "intent"], "approvals": ["args_json", "intent", "reason"]}
+        for table, cols in wanted.items():
+            have = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+            for col in cols:
+                if col not in have:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
+        self.conn.commit()
 
     # ---- audit -------------------------------------------------------------
     def record(self, at: datetime, agent_id: str, on_behalf_of: str | None, tool: str,
                amount_inr: float, cost_inr: float, outcome: str, reason: str,
-               anomaly_score: float | None = None) -> int:
+               anomaly_score: float | None = None, args: dict | None = None,
+               intent: str | None = None) -> int:
         with self._lock:
             cur = self.conn.execute(
                 "INSERT INTO audit_events (at, agent_id, on_behalf_of, tool, amount_inr, cost_inr,"
-                " outcome, reason, anomaly_score) VALUES (?,?,?,?,?,?,?,?,?)",
+                " outcome, reason, anomaly_score, args_json, intent) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (_ts(at), agent_id, on_behalf_of, tool, amount_inr, cost_inr, outcome, reason,
-                 anomaly_score),
+                 anomaly_score, json.dumps(args) if args else None, intent),
             )
             self.conn.commit()
             return cur.lastrowid
@@ -125,6 +142,16 @@ class Store:
         blocked = sum(r[2] for r in rows if r[0] in ("deny", "frozen"))
         return {"actions_today": counts, "blocked_amount_today_inr": float(blocked)}
 
+    def allowed_since(self, agent_id: str, now: datetime, window: timedelta) -> list[dict]:
+        """Actions that actually went through recently, oldest first (context for the AI judge)."""
+        rows = self.conn.execute(
+            "SELECT at, tool, amount_inr, args_json FROM audit_events WHERE agent_id = ?"
+            " AND outcome = 'allow' AND at >= ? AND at <= ? ORDER BY at",
+            (agent_id, _ts(now - window), _ts(now)),
+        )
+        return [{**dict(r), "args": json.loads(r["args_json"]) if r["args_json"] else None}
+                for r in rows]
+
     def tools_used(self, agent_id: str) -> set[str]:
         rows = self.conn.execute(
             "SELECT DISTINCT tool FROM audit_events WHERE agent_id = ? AND outcome = 'allow'",
@@ -134,12 +161,14 @@ class Store:
 
     # ---- approvals ---------------------------------------------------------
     def create_approval(self, at: datetime, agent_id: str, on_behalf_of: str | None, tool: str,
-                        amount_inr: float, cost_inr: float) -> int:
+                        amount_inr: float, cost_inr: float, args: dict | None = None,
+                        intent: str | None = None, reason: str | None = None) -> int:
         with self._lock:
             cur = self.conn.execute(
-                "INSERT INTO approvals (created_at, agent_id, on_behalf_of, tool, amount_inr, cost_inr)"
-                " VALUES (?,?,?,?,?,?)",
-                (_ts(at), agent_id, on_behalf_of, tool, amount_inr, cost_inr),
+                "INSERT INTO approvals (created_at, agent_id, on_behalf_of, tool, amount_inr, cost_inr,"
+                " args_json, intent, reason) VALUES (?,?,?,?,?,?,?,?,?)",
+                (_ts(at), agent_id, on_behalf_of, tool, amount_inr, cost_inr,
+                 json.dumps(args) if args else None, intent, reason),
             )
             self.conn.commit()
             return cur.lastrowid

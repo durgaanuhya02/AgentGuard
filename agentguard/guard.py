@@ -5,7 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
+import json
+
 from agentguard.anomaly import AnomalyDetector, build_features
+from agentguard.intent import IntentJudge
 from agentguard.models import ActionRequest, Decision, Outcome
 from agentguard.policy import Policy
 from agentguard.store import Store
@@ -18,13 +21,15 @@ FreezeHook = Callable[[str, str], None]
 class Guard:
     def __init__(self, policy: Policy | None = None, store: Store | None = None,
                  detector: AnomalyDetector | None = None, sinks: list[AuditSink] | None = None,
-                 freeze_hooks: list[FreezeHook] | None = None):
+                 freeze_hooks: list[FreezeHook] | None = None, judge: IntentJudge | None = None):
         self.policy = policy or Policy.load()
         self.store = store or Store()
         self.detector = detector or AnomalyDetector()
         # Extra places to send every audit event, e.g. WorkOS Audit Logs.
         self.sinks = sinks or []
         self.freeze_hooks = freeze_hooks or []
+        # AI intent judge (see intent.py). None = intent check off.
+        self.judge = judge
 
     # ------------------------------------------------------------------ check
     def check(self, req: ActionRequest) -> Decision:
@@ -81,14 +86,29 @@ class Guard:
                     pass
             return self._finish(req, now, user.id, Outcome.FROZEN, reason, score)
 
-        # 6. Large actions need a human.
+        # 6. AI intent check: does this action match what the user actually asked for?
+        if self.judge and req.intent and req.tool in self.policy.intent_check.get("tools", []):
+            history = self.store.allowed_since(agent.id, now, timedelta(minutes=30))
+            v = self.judge.judge(req.intent, req.tool, req.args, req.amount_inr, history)
+            if v.consistent is not True:
+                verdict = "doesn't match the request" if v.consistent is False else "couldn't verify"
+                reason = f"AI intent check {verdict}: {v.reason.rstrip('.')}. Sent to a human"
+                approval_id = self.store.create_approval(now, agent.id, user.id, req.tool,
+                                                         req.amount_inr, req.cost_inr, req.args,
+                                                         req.intent, reason)
+                return self._finish(req, now, user.id, Outcome.NEEDS_APPROVAL, reason,
+                                    score, approval_id)
+
+        # 7. Large actions need a human.
         threshold = self.policy.approval_threshold(agent, req.tool)
         if threshold is not None and req.amount_inr > threshold:
+            reason = (f"₹{req.amount_inr:,.0f} is above {user.name}'s limit of "
+                      f"₹{threshold:,.0f} for '{req.tool}'")
             approval_id = self.store.create_approval(now, agent.id, user.id, req.tool,
-                                                     req.amount_inr, req.cost_inr)
-            return self._finish(req, now, user.id, Outcome.NEEDS_APPROVAL,
-                                f"₹{req.amount_inr:,.0f} is above {user.name}'s limit of "
-                                f"₹{threshold:,.0f} for '{req.tool}'", score, approval_id)
+                                                     req.amount_inr, req.cost_inr, req.args,
+                                                     req.intent, reason)
+            return self._finish(req, now, user.id, Outcome.NEEDS_APPROVAL, reason, score,
+                                approval_id)
 
         note = " (slightly unusual, watching)" if anomalous else ""
         return self._finish(req, now, user.id, Outcome.ALLOW, "Within permissions and budget" + note, score)
@@ -110,7 +130,8 @@ class Guard:
 
         self.store.decide_approval(approval_id, approve, approver_id, at)
         req = ActionRequest(agent_id=ap["agent_id"], tool=ap["tool"], amount_inr=ap["amount_inr"],
-                            cost_inr=ap["cost_inr"], at=at)
+                            cost_inr=ap["cost_inr"], intent=ap.get("intent"),
+                            args=json.loads(ap["args_json"]) if ap.get("args_json") else None, at=at)
         if approve:
             return self._finish(req, at, ap["on_behalf_of"], Outcome.ALLOW,
                                 f"Approved by {approver.name} (approval #{approval_id})")
@@ -129,7 +150,7 @@ class Guard:
     def _finish(self, req: ActionRequest, now: datetime, on_behalf_of: str | None, outcome: Outcome,
                 reason: str, score: float | None = None, approval_id: int | None = None) -> Decision:
         self.store.record(now, req.agent_id, on_behalf_of, req.tool, req.amount_inr, req.cost_inr,
-                          outcome.value, reason, score)
+                          outcome.value, reason, score, req.args, req.intent)
         event = {"at": now.isoformat(), "agent_id": req.agent_id, "on_behalf_of": on_behalf_of,
                  "tool": req.tool, "amount_inr": req.amount_inr, "cost_inr": req.cost_inr,
                  "outcome": outcome.value, "reason": reason}

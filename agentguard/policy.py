@@ -37,10 +37,13 @@ class Agent:
 class Policy:
     """Roles, users and agents. Loaded from JSON for now; WorkOS roles later."""
 
-    def __init__(self, roles: dict[str, Role], users: dict[str, User], agents: dict[str, Agent]):
+    def __init__(self, roles: dict[str, Role], users: dict[str, User], agents: dict[str, Agent],
+                 intent_check: dict | None = None):
         self.roles = roles
         self.users = users
         self.agents = agents
+        # AI intent check settings: which tools it runs on and which model judges.
+        self.intent_check = intent_check or {}
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_POLICY_PATH) -> "Policy":
@@ -61,7 +64,7 @@ class Policy:
             )
             for aid, a in raw["agents"].items()
         }
-        return cls(roles, users, agents)
+        return cls(roles, users, agents, raw.get("intent_check"))
 
     def effective_tools(self, agent: Agent) -> set[str]:
         """An agent can never do more than the human who launched it.

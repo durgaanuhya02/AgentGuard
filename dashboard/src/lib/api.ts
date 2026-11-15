@@ -23,6 +23,8 @@ export interface AuditEvent {
   outcome: Outcome;
   reason: string;
   anomaly_score: number | null;
+  args_json: string | null;
+  intent: string | null;
 }
 
 export interface Approval {
@@ -33,6 +35,9 @@ export interface Approval {
   tool: string;
   amount_inr: number;
   status: string;
+  args_json: string | null;
+  intent: string | null;
+  reason: string | null;
 }
 
 export interface Me {

@@ -66,7 +66,10 @@ def text_of(result) -> str:
 
 
 async def run(scenario: str, model: str, ollama: str, api: str | None, max_steps: int) -> None:
-    env = dict(os.environ, AGENTGUARD_AGENT_ID="support-bot", PYTHONIOENCODING="utf-8")
+    # The runner (the "app") passes the customer's message as the session intent. The agent can't
+    # change it, so the AI intent check compares each action with what the customer really sent.
+    env = dict(os.environ, AGENTGUARD_AGENT_ID="support-bot", PYTHONIOENCODING="utf-8",
+               AGENTGUARD_INTENT=SCENARIOS[scenario])
     if api:
         # Dev-mode API: create a fresh key for this run as the demo admin.
         r = httpx.post(f"{api}/v1/agents/support-bot/keys", headers={"X-User-Id": "meera"}, timeout=10)

@@ -1,4 +1,11 @@
 {
+  "intent_check": {
+    "tools": ["issue_refund", "delete_customer"],
+    "judge": "ollama",
+    "model": "llama3.2",
+    "url": "http://127.0.0.1:11434",
+    "timeout_s": 120
+  },
   "roles": {
     "support": {
       "tools": ["lookup_order", "issue_refund"],

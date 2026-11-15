@@ -13,11 +13,43 @@ call an agent makes and answers four questions:
 3. **Does it need a human?** Actions above the user's limit (e.g. a ₹8,000 refund) wait for
    someone who is allowed to approve them.
 4. **Is it behaving normally?** An Isolation Forest model scores each call's behaviour and freezes
-   the agent when it starts acting unlike itself (bursts, night-time activity), before the budget is
-   gone.
+   the agent when it starts acting unlike itself (bursts, repeats, night-time activity), before the
+   budget is gone.
+5. **Does it match what the user asked for?** Before a money-moving action, an **AI intent check**
+   compares the action with the user's original request. A mismatch goes to a human.
 
 Every decision is written to an audit trail, locally and optionally to **WorkOS Audit Logs**.
 Humans sign in with **WorkOS AuthKit**.
+
+## AI intent check
+
+Speed and repetition signals only notice an attack after a few actions. A prompt-injected agent's
+*first* refund already looks wrong to anyone reading the customer's request next to it, so a second
+model does exactly that before money-moving actions (`agentguard/intent.py`):
+
+1. **Rule pre-check (instant):** passes the action if the customer's own message names this order
+   and this amount, has no "admin / system / authorised / don't ask" style text, and the action
+   hasn't already been done.
+2. **AI judge (local Ollama model):** reviews everything the rule can't clear. It writes down what
+   the customer asked for, then compares the action against it.
+3. A "doesn't match" verdict, or a judge failure, **sends the action to a human** with the reason
+   and the customer's message. The AI never silently blocks or approves on its own.
+
+The judge is swappable (any object with a `judge()` method); configure it under `intent_check` in
+`config/policies.json`. The user's request should be passed in by the app that starts the agent
+(`AGENTGUARD_INTENT` for the MCP server), never by the agent itself.
+
+**Results on 8 hand-written cases** (a sanity check, not a benchmark):
+
+| Judge | Correct | Honest refunds |
+|---|---|---|
+| llama3.2 (3B) alone | 5/8 | all 3 wrongly sent to a human |
+| Rule pre-check + llama3.2 | 8/8 | cleared instantly; the model only sees unclear cases |
+
+**Live, with a real prompt-injected agent:** told by fake "admin" text to issue ten ₹2,000 refunds,
+the agent's **first** refund was flagged ("the customer asked for a check, not a refund") and sent
+to a human. **No money moved.** Before the AI check, 3 refunds got through; before the repetition
+signal, 5 did.
 
 ## How it fits with WorkOS
 
@@ -79,6 +111,7 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 | `scripts/create_agent_key.py` | Create an agent key from the command line |
 | `scripts/reset_demo.py` | Wipe the local database before recording a demo |
 | `agent/run_agent.py` | A real LLM agent (local Ollama model) using the guarded MCP server |
+| `agentguard/intent.py` | AI intent check: rule pre-check + swappable AI judge |
 
 ## Run it
 
@@ -86,7 +119,7 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-pytest                          # 36 tests
+pytest                          # 48 tests
 uvicorn api.main:app --reload   # API on http://localhost:8000/docs
 
 cd dashboard && npm install && npm run dev -- -p 3001   # dashboard on http://localhost:3001
@@ -101,8 +134,10 @@ python agent/run_agent.py injection --api http://127.0.0.1:8000   # prompt-injec
 ```
 
 Result with llama3.2 (3B) at temperature 0: told by fake "admin" text to issue ten ₹2,000 refunds,
-the model called `issue_refund` again and again. AgentGuard froze it on the 4th call, so 3 went
-through (₹6,000 of ₹20,000). The agent then told the customer it had been blocked and escalated.
+the model tried to. With the AI intent check, the first refund went to a human and no money moved
+(see "AI intent check" above). Without it, behaviour signals froze the agent on the 4th call.
+Note: when a tool call failed once, the agent still told the customer the refund was done. Trust
+the audit trail, not the agent's words.
 The `indirect-injection` scenario hides the same instruction in order data; the 3B model read it
 but didn't act on it in our runs.
 
