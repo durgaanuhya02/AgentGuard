@@ -132,6 +132,18 @@ export default function Dashboard() {
           <h1 className="text-2xl font-semibold tracking-tight">AgentGuard</h1>
           <p className="text-sm text-zinc-500">Every agent action tied to a human, capped in cost, and stoppable.</p>
         </div>
+        {me?.auth === "workos" ? (
+          <div className="flex items-center gap-3 text-sm">
+            <span>
+              <span className="text-zinc-500">Signed in as </span>
+              <b>{me.name}</b> <span className="text-zinc-500">({me.role})</span>
+              {me.email && <span className="block text-xs text-zinc-500">{me.email} · via WorkOS</span>}
+            </span>
+            <a href="/api/auth/logout" className={`${btn} bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700`}>
+              Sign out
+            </a>
+          </div>
+        ) : (
         <label className="flex items-center gap-2 text-sm">
           <span className="text-zinc-500">Acting as</span>
           <select
@@ -146,6 +158,7 @@ export default function Dashboard() {
             ))}
           </select>
         </label>
+        )}
       </header>
 
       {error && (

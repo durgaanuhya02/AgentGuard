@@ -20,6 +20,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import httpx  # noqa: E402
 from mcp.server.mcpserver import MCPServer  # noqa: E402
 
+from agentguard.settings import load_env  # noqa: E402
+
+load_env()
+
 from agentguard import ActionRequest, Guard  # noqa: E402
 from agentguard.intent import build_judge  # noqa: E402
 from agentguard.store import Store, default_db_path  # noqa: E402

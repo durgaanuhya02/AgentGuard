@@ -144,6 +144,12 @@ but didn't act on it in our runs.
 Agents authenticate to `/v1/check` with their own key (`Authorization: Bearer agk_...`). Admins
 create and revoke keys in the dashboard; the full key is shown once and only its hash is stored.
 
+**WorkOS login (tested live):** put `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` and `WORKOS_ORGANIZATION_ID`
+in `.env` (copy `.env.example`), add `http://localhost:3001/api/auth/callback` as a Redirect URI under
+WorkOS → Applications → your app → Redirects, and map your login email to a user with
+`AGENTGUARD_USER_EMAILS=meera:you@example.com` (kept in `.env`, so real emails stay out of git).
+The dashboard then shows "Sign in with WorkOS" and "Signed in as … via WorkOS".
+
 Without WorkOS keys the API runs in dev mode: pick the human with an `X-User-Id` header
 (`priya`, `arjun`, `meera`). To use WorkOS, copy `.env.example` to `.env`, add your keys from
 the WorkOS dashboard, and set each user's `email` in `config/policies.json`. For Audit Logs, also
@@ -180,9 +186,9 @@ To use the MCP server from an MCP client, point it at `python mcp_server/server.
 ## Build plan
 
 - **Week 1 (done):** core guard, anomaly detector, API, guarded MCP server, demo, tests.
-- **Week 2 (mostly done):** per-agent API keys ✅, WorkOS Agent Auth tokens accepted and sessions
-  revoked on freeze ✅ (against a fake client). Still to do: create a WorkOS account and test
-  AuthKit login, Audit Logs and Agent Auth against live WorkOS.
+- **Week 2 (mostly done):** per-agent API keys ✅, WorkOS AuthKit login tested live ✅, WorkOS
+  Agent Auth tokens accepted and sessions revoked on freeze ✅ (against a fake client). Still to do:
+  Audit Logs and Agent Auth against live WorkOS.
 - **Week 3 (done early):** Next.js dashboard with live audit feed, approve/reject buttons, frozen
   agents with an unfreeze button, spend per agent, key management.
 - **Week 4:** real LLM agent through the MCP server ✅ (local Ollama). Still to do: record the 90-second demo, deploy

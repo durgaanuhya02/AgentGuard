@@ -23,6 +23,10 @@ from fastapi.responses import RedirectResponse  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 from starlette.middleware.sessions import SessionMiddleware  # noqa: E402
 
+from agentguard.settings import load_env  # noqa: E402
+
+load_env()
+
 from agentguard import ActionRequest, Guard  # noqa: E402
 from agentguard import workos_client  # noqa: E402
 from agentguard.intent import build_judge  # noqa: E402
@@ -71,6 +75,16 @@ def require_admin(user_id: str) -> None:
 
 
 # ------------------------------------------------------------------ human auth
+def user_email(user_id: str, default: str | None) -> str:
+    """A user's sign-in email. AGENTGUARD_USER_EMAILS in .env overrides policies.json, so real
+    emails stay out of the git repo. Format: `meera:you@example.com,priya:someone@example.com`."""
+    for pair in os.getenv("AGENTGUARD_USER_EMAILS", "").split(","):
+        uid, _, email = pair.strip().partition(":")
+        if uid == user_id and email:
+            return email.strip()
+    return default or ""
+
+
 def current_user(request: Request, x_user_id: str | None = Header(default=None)) -> str:
     """Returns the AgentGuard user id of the signed-in human.
 
@@ -82,7 +96,7 @@ def current_user(request: Request, x_user_id: str | None = Header(default=None))
         if not email:
             raise HTTPException(401, "Sign in at /auth/login")
         for uid, u in guard().policy.users.items():
-            if u.email and u.email.lower() == email.lower():
+            if user_email(uid, u.email).lower() == email.lower():
                 return uid
         raise HTTPException(403, f"{email} is not an AgentGuard user")
     if not x_user_id or x_user_id not in guard().policy.users:
@@ -113,13 +127,16 @@ def callback(request: Request, code: str, state: str | None = None):
 @app.get("/auth/logout")
 def logout(request: Request):
     request.session.clear()
-    return {"ok": True}
+    return RedirectResponse(os.getenv("DASHBOARD_URL", "/"))
 
 
 @app.get("/me")
-def me(user_id: str = Depends(current_user)):
+def me(request: Request, user_id: str = Depends(current_user)):
     u = guard().policy.users[user_id]
-    return {"id": u.id, "name": u.name, "role": u.role}
+    workos = workos_client.configured()
+    return {"id": u.id, "name": u.name, "role": u.role,
+            "auth": "workos" if workos else "dev",
+            "email": request.session.get("email") if workos else None}
 
 
 # ---------------------------------------------------------------- agent checks

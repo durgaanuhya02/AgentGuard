@@ -44,6 +44,8 @@ export interface Me {
   id: string;
   name: string;
   role: string;
+  auth: "workos" | "dev";
+  email: string | null;
 }
 
 export class ApiError extends Error {
