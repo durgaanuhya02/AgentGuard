@@ -48,6 +48,26 @@ export interface Me {
   email: string | null;
 }
 
+export interface Explanation {
+  summary: string;
+  likely_cause: string;
+  risk: "low" | "medium" | "high";
+  recommended_actions: string[];
+  source: "ai" | "rules";
+  note?: string;
+}
+
+export interface IncidentReport {
+  facts: {
+    actions: number;
+    by_outcome: Partial<Record<Outcome, number>>;
+    money_moved_inr: number;
+    money_stopped_or_held_inr: number;
+    window_hours: number;
+  };
+  explanation: Explanation;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);

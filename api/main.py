@@ -29,6 +29,7 @@ load_env()
 
 from agentguard import ActionRequest, Guard  # noqa: E402
 from agentguard import workos_client  # noqa: E402
+from agentguard.copilot import build_explainer, incident_facts  # noqa: E402
 from agentguard.intent import build_judge  # noqa: E402
 from agentguard.keys import KeyStore  # noqa: E402
 from agentguard.store import Store, default_db_path  # noqa: E402
@@ -47,6 +48,8 @@ def build_guard() -> Guard:
 
 def init_state() -> None:
     app.state.guard = build_guard()
+    # Incident copilot (AI explanation of what an agent did); uses the intent-check model settings.
+    app.state.explainer = build_explainer(app.state.guard.policy.intent_check)
     # WorkOS Agent Auth tokens are accepted alongside agk_ keys when WorkOS is configured.
     client = workos_client.get_client()
     app.state.agent_tokens = (workos_client.AgentTokenVerifier(client, app.state.guard.policy)
@@ -251,3 +254,20 @@ def revoke_key(prefix: str, user_id: str = Depends(current_user)):
     if not keys().revoke(prefix):
         raise HTTPException(404, "No active key with that prefix")
     return {"ok": True}
+
+
+# ------------------------------------------------------------- incident copilot
+@app.post("/v1/agents/{agent_id}/explain")
+def explain(agent_id: str, _: str = Depends(current_user)):
+    """What did this agent do recently, why, and what should we do? Facts are computed in code;
+    the AI only writes the explanation (falls back to a rule-based summary)."""
+    g = guard()
+    if agent_id not in g.policy.agents:
+        raise HTTPException(404, f"Unknown agent '{agent_id}'")
+    facts = incident_facts(g.store, g.policy, agent_id)
+    explainer = app.state.explainer
+    explanation = explainer.explain(facts) if explainer else None
+    if explanation is None:
+        from agentguard.copilot import rule_summary
+        explanation = rule_summary(facts)
+    return {"facts": facts, "explanation": explanation}

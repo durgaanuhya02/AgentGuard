@@ -51,6 +51,18 @@ the agent's **first** refund was flagged ("the customer asked for a check, not a
 to a human. **No money moved.** Before the AI check, 3 refunds got through; before the repetition
 signal, 5 did.
 
+## Incident copilot
+
+Each agent card in the dashboard has **Explain with AI** (`POST /v1/agents/{id}/explain`,
+`agentguard/copilot.py`). AgentGuard first computes the facts from the audit trail in code (actions,
+outcomes, money moved vs stopped, the user's requests, a timeline); the AI then turns them into a
+summary, a likely cause, a risk level and recommended next steps. The numbers shown always come from
+the code, never from the AI. If the model is unavailable, a rule-based summary is shown instead.
+
+Honest result with llama3.2 (3B) on a laptop CPU: about 54 s per explanation, and the write-up is
+generic (it missed that one request was a prompt-injection attempt). A stronger model would do much
+better; the explainer is swappable like the intent judge.
+
 ## How it fits with WorkOS
 
 WorkOS **Agent Auth** gives each first-party agent an identity: a blueprint, a permission ceiling,
@@ -116,6 +128,7 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 | `scripts/reset_demo.py` | Wipe the local database before recording a demo |
 | `agent/run_agent.py` | A real LLM agent (local Ollama model) using the guarded MCP server |
 | `agentguard/intent.py` | AI intent check: rule pre-check + swappable AI judge |
+| `agentguard/copilot.py` | Incident copilot: facts from code, explanation from AI |
 
 ## Run it
 
@@ -123,7 +136,7 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-pytest                          # 50 tests
+pytest                          # 55 tests
 uvicorn api.main:app --reload   # API on http://localhost:8000/docs
 
 cd dashboard && npm install && npm run dev -- -p 3001   # dashboard on http://localhost:3001

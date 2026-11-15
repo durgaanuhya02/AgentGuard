@@ -5,6 +5,7 @@ import {
   Agent,
   ApiError,
   Approval,
+  IncidentReport,
   AuditEvent,
   Me,
   Outcome,
@@ -46,6 +47,18 @@ export default function Dashboard() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [newKey, setNewKey] = useState<{ agent: string; key: string } | null>(null);
+  // Incident copilot results per agent: "loading", a report, or an error message.
+  const [reports, setReports] = useState<Record<string, IncidentReport | "loading" | { error: string }>>({});
+
+  const explainAgent = async (agentId: string) => {
+    setReports((r) => ({ ...r, [agentId]: "loading" }));
+    try {
+      const rep = await api<IncidentReport>(`/v1/agents/${agentId}/explain`, { method: "POST" });
+      setReports((r) => ({ ...r, [agentId]: rep }));
+    } catch (err) {
+      setReports((r) => ({ ...r, [agentId]: { error: err instanceof Error ? err.message : String(err) } }));
+    }
+  };
   const seen = useRef<Set<number>>(new Set());
   const [fresh, setFresh] = useState<Set<number>>(new Set());
 
@@ -271,6 +284,17 @@ export default function Dashboard() {
                     </button>
                   )}
                 </div>
+
+                <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+                  <button
+                    className={`${btn} ${a.frozen ? "bg-sky-600 text-white hover:bg-sky-700" : "bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"}`}
+                    disabled={reports[a.id] === "loading"}
+                    onClick={() => explainAgent(a.id)}
+                  >
+                    {reports[a.id] === "loading" ? "AI is reading the audit trail…" : "Explain with AI"}
+                  </button>
+                  <IncidentPanel report={reports[a.id]} />
+                </div>
               </div>
             );
           })}
@@ -380,6 +404,48 @@ export default function Dashboard() {
         </div>
       </section>
     </main>
+  );
+}
+
+const RISK_STYLE = {
+  low: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  medium: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  high: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+};
+
+function IncidentPanel({ report }: { report: IncidentReport | "loading" | { error: string } | undefined }) {
+  if (!report || report === "loading") return null;
+  if ("error" in report) return <p className="mt-2 text-sm text-red-600">{report.error}</p>;
+  const { facts, explanation: ex } = report;
+  return (
+    <div className="mt-3 space-y-2 rounded-lg bg-sky-50 p-3 text-sm dark:bg-sky-950/40">
+      <div className="flex flex-wrap items-center gap-2">
+        {ex.source === "ai" && <AiChip />}
+        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${RISK_STYLE[ex.risk]}`}>{ex.risk} risk</span>
+        <span className="text-xs text-zinc-500">
+          {facts.actions} actions in {facts.window_hours.toFixed(0)} h · {inr(facts.money_moved_inr)} moved ·{" "}
+          {inr(facts.money_stopped_or_held_inr)} stopped or held
+        </span>
+      </div>
+      <p>{ex.summary}</p>
+      {ex.likely_cause && (
+        <p>
+          <b>Likely cause:</b> {ex.likely_cause}
+        </p>
+      )}
+      {ex.recommended_actions.length > 0 && (
+        <ul className="list-disc pl-5">
+          {ex.recommended_actions.map((x, i) => (
+            <li key={i}>{x}</li>
+          ))}
+        </ul>
+      )}
+      <p className="text-xs text-zinc-500">
+        {ex.source === "ai"
+          ? "Written by AI from facts computed by AgentGuard. Numbers above come from the audit trail, not the AI."
+          : ex.note ?? "Rule-based summary."}
+      </p>
+    </div>
   );
 }
 
