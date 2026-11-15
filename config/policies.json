@@ -1,0 +1,35 @@
+{
+  "roles": {
+    "support": {
+      "tools": ["lookup_order", "issue_refund"],
+      "approval_over_inr": { "issue_refund": 2000 }
+    },
+    "intern": {
+      "tools": ["lookup_order"],
+      "approval_over_inr": {}
+    },
+    "admin": {
+      "tools": ["lookup_order", "issue_refund", "delete_customer"],
+      "approval_over_inr": { "issue_refund": 50000 }
+    }
+  },
+  "users": {
+    "priya": { "name": "Priya", "role": "support", "email": "priya@example.com" },
+    "arjun": { "name": "Arjun", "role": "intern", "email": "arjun@example.com" },
+    "meera": { "name": "Meera", "role": "admin", "email": "meera@example.com" }
+  },
+  "agents": {
+    "support-bot": {
+      "on_behalf_of": "priya",
+      "scopes": ["lookup_order", "issue_refund", "delete_customer"],
+      "daily_budget_inr": 20000,
+      "daily_call_limit": { "issue_refund": 25 }
+    },
+    "intern-helper": {
+      "on_behalf_of": "arjun",
+      "scopes": ["lookup_order", "issue_refund"],
+      "daily_budget_inr": 1000,
+      "daily_call_limit": {}
+    }
+  }
+}

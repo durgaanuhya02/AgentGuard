@@ -1,0 +1,159 @@
+"""AgentGuard HTTP API.
+
+Agents (or the MCP server) call POST /v1/check before every tool call. Humans use the other
+endpoints, later through the Next.js dashboard, to see the audit trail, approve actions and
+unfreeze agents.
+
+Run:  uvicorn api.main:app --reload
+"""
+
+from __future__ import annotations
+
+import os
+import secrets
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from datetime import datetime, timezone  # noqa: E402
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Request  # noqa: E402
+from fastapi.responses import RedirectResponse  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
+from starlette.middleware.sessions import SessionMiddleware  # noqa: E402
+
+from agentguard import ActionRequest, Guard  # noqa: E402
+from agentguard import workos_client  # noqa: E402
+from agentguard.store import Store  # noqa: E402
+
+
+def build_guard() -> Guard:
+    sinks = []
+    client = workos_client.get_client()
+    org = os.getenv("WORKOS_ORGANIZATION_ID")
+    if client and org:
+        sinks.append(workos_client.audit_sink(client, org))
+    return Guard(store=Store(os.getenv("AGENTGUARD_DB", "agentguard.db")), sinks=sinks)
+
+
+app = FastAPI(title="AgentGuard", version="0.1.0")
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", secrets.token_hex(32)))
+app.state.guard = build_guard()
+
+
+def guard() -> Guard:
+    return app.state.guard
+
+
+# ------------------------------------------------------------------ human auth
+def current_user(request: Request, x_user_id: str | None = Header(default=None)) -> str:
+    """Returns the AgentGuard user id of the signed-in human.
+
+    WorkOS mode: the AuthKit session, matched to a policy user by email.
+    Dev mode (no WorkOS keys): the X-User-Id header, e.g. `X-User-Id: meera`.
+    """
+    if workos_client.configured():
+        email = request.session.get("email")
+        if not email:
+            raise HTTPException(401, "Sign in at /auth/login")
+        for uid, u in guard().policy.users.items():
+            if u.email and u.email.lower() == email.lower():
+                return uid
+        raise HTTPException(403, f"{email} is not an AgentGuard user")
+    if not x_user_id or x_user_id not in guard().policy.users:
+        raise HTTPException(401, "Dev mode: send an X-User-Id header (priya, arjun or meera)")
+    return x_user_id
+
+
+@app.get("/auth/login")
+def login(request: Request):
+    client = workos_client.get_client()
+    if not client:
+        raise HTTPException(400, "WorkOS is not configured; using dev mode")
+    state = secrets.token_urlsafe(16)
+    request.session["state"] = state
+    redirect = os.getenv("WORKOS_REDIRECT_URI", "http://localhost:8000/auth/callback")
+    return RedirectResponse(workos_client.authorization_url(client, redirect, state))
+
+
+@app.get("/auth/callback")
+def callback(request: Request, code: str, state: str | None = None):
+    if not state or state != request.session.pop("state", None):
+        raise HTTPException(400, "Invalid login state")
+    user = workos_client.authenticate(workos_client.get_client(), code)
+    request.session["email"] = user["email"]
+    return RedirectResponse(os.getenv("DASHBOARD_URL", "/me"))
+
+
+@app.get("/auth/logout")
+def logout(request: Request):
+    request.session.clear()
+    return {"ok": True}
+
+
+@app.get("/me")
+def me(user_id: str = Depends(current_user)):
+    u = guard().policy.users[user_id]
+    return {"id": u.id, "name": u.name, "role": u.role}
+
+
+# ---------------------------------------------------------------- agent checks
+class CheckBody(BaseModel):
+    agent_id: str
+    tool: str
+    amount_inr: float = 0.0
+    cost_inr: float = 0.0
+
+
+@app.post("/v1/check")
+def check(body: CheckBody):
+    # TODO (week 2): authenticate the agent itself (per-agent key or WorkOS agent token).
+    d = guard().check(ActionRequest(body.agent_id, body.tool, body.amount_inr, body.cost_inr))
+    return {"outcome": d.outcome.value, "allowed": d.allowed, "reason": d.reason,
+            "on_behalf_of": d.on_behalf_of, "approval_id": d.approval_id,
+            "anomaly_score": d.anomaly_score}
+
+
+# ------------------------------------------------------------- human actions
+@app.get("/v1/agents")
+def agents(_: str = Depends(current_user)):
+    g, now = guard(), datetime.now(timezone.utc)
+    return [{"id": a.id, "on_behalf_of": a.on_behalf_of,
+             "effective_tools": sorted(g.policy.effective_tools(a)),
+             "daily_budget_inr": a.daily_budget_inr, "spent_today_inr": g.store.spent_today(a.id, now),
+             "frozen": g.store.frozen(a.id)} for a in g.policy.agents.values()]
+
+
+@app.get("/v1/audit")
+def audit(agent_id: str | None = None, limit: int = 200, _: str = Depends(current_user)):
+    return guard().store.audit(agent_id, limit)
+
+
+@app.get("/v1/approvals")
+def approvals(status: str | None = "pending", _: str = Depends(current_user)):
+    return guard().store.list_approvals(status)
+
+
+class ApprovalBody(BaseModel):
+    approve: bool
+
+
+@app.post("/v1/approvals/{approval_id}")
+def decide(approval_id: int, body: ApprovalBody, user_id: str = Depends(current_user)):
+    try:
+        d = guard().resolve_approval(approval_id, user_id, body.approve)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return {"outcome": d.outcome.value, "reason": d.reason}
+
+
+@app.post("/v1/agents/{agent_id}/unfreeze")
+def unfreeze(agent_id: str, user_id: str = Depends(current_user)):
+    try:
+        guard().unfreeze(agent_id, user_id)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    return {"ok": True}
