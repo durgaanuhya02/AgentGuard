@@ -3,7 +3,7 @@
 Any MCP client (Claude Desktop, Cursor, your own agent) can connect to it. The agent identity
 comes from AGENTGUARD_AGENT_ID. Each tool asks AgentGuard before doing anything:
 
-- AGENTGUARD_URL set   -> asks the AgentGuard API over HTTP (the real setup)
+- AGENTGUARD_URL set   -> asks the AgentGuard API over HTTP with AGENTGUARD_AGENT_KEY (the real setup)
 - AGENTGUARD_URL unset -> uses an in-process Guard (handy for local testing)
 
 Run:  python mcp_server/server.py          (stdio transport, mcp 2.x)
@@ -21,10 +21,12 @@ import httpx  # noqa: E402
 from mcp.server.mcpserver import MCPServer  # noqa: E402
 
 from agentguard import ActionRequest, Guard  # noqa: E402
-from agentguard.store import Store  # noqa: E402
+from agentguard.store import Store, default_db_path  # noqa: E402
 
 AGENT_ID = os.getenv("AGENTGUARD_AGENT_ID", "support-bot")
 API_URL = os.getenv("AGENTGUARD_URL")
+# The agent's own key (create one with scripts/create_agent_key.py). Needed in HTTP mode.
+AGENT_KEY = os.getenv("AGENTGUARD_AGENT_KEY", "")
 COST_PER_CALL_INR = float(os.getenv("AGENTGUARD_COST_PER_CALL_INR", "2"))
 
 # Fake data so the demo needs no real backend.
@@ -35,17 +37,20 @@ ORDERS = {
 }
 
 _local_guard: Guard | None = None
+# Reuse one connection to the API; a new connection per tool call adds noticeable latency.
+_http = httpx.Client(timeout=10)
 
 
 def guard_check(tool: str, amount_inr: float = 0.0) -> dict:
     if API_URL:
-        r = httpx.post(f"{API_URL}/v1/check", timeout=10, json={
-            "agent_id": AGENT_ID, "tool": tool, "amount_inr": amount_inr, "cost_inr": COST_PER_CALL_INR})
+        r = _http.post(f"{API_URL}/v1/check",
+                       headers={"Authorization": f"Bearer {AGENT_KEY}"},
+                       json={"tool": tool, "amount_inr": amount_inr, "cost_inr": COST_PER_CALL_INR})
         r.raise_for_status()
         return r.json()
     global _local_guard
     if _local_guard is None:
-        _local_guard = Guard(store=Store(os.getenv("AGENTGUARD_DB", "agentguard.db")))
+        _local_guard = Guard(store=Store(default_db_path()))
     d = _local_guard.check(ActionRequest(AGENT_ID, tool, amount_inr=amount_inr, cost_inr=COST_PER_CALL_INR))
     return {"outcome": d.outcome.value, "reason": d.reason, "approval_id": d.approval_id}
 

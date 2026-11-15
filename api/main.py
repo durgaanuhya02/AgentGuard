@@ -25,7 +25,8 @@ from starlette.middleware.sessions import SessionMiddleware  # noqa: E402
 
 from agentguard import ActionRequest, Guard  # noqa: E402
 from agentguard import workos_client  # noqa: E402
-from agentguard.store import Store  # noqa: E402
+from agentguard.keys import KeyStore  # noqa: E402
+from agentguard.store import Store, default_db_path  # noqa: E402
 
 
 def build_guard() -> Guard:
@@ -34,16 +35,30 @@ def build_guard() -> Guard:
     org = os.getenv("WORKOS_ORGANIZATION_ID")
     if client and org:
         sinks.append(workos_client.audit_sink(client, org))
-    return Guard(store=Store(os.getenv("AGENTGUARD_DB", "agentguard.db")), sinks=sinks)
+    return Guard(store=Store(default_db_path()), sinks=sinks)
 
 
-app = FastAPI(title="AgentGuard", version="0.1.0")
+def init_state() -> None:
+    app.state.guard = build_guard()
+    app.state.keys = KeyStore(app.state.guard.store)
+
+
+app = FastAPI(title="AgentGuard", version="0.2.0")
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", secrets.token_hex(32)))
-app.state.guard = build_guard()
+init_state()
 
 
 def guard() -> Guard:
     return app.state.guard
+
+
+def keys() -> KeyStore:
+    return app.state.keys
+
+
+def require_admin(user_id: str) -> None:
+    if guard().policy.users[user_id].role != "admin":
+        raise HTTPException(403, "Admins only")
 
 
 # ------------------------------------------------------------------ human auth
@@ -100,16 +115,28 @@ def me(user_id: str = Depends(current_user)):
 
 # ---------------------------------------------------------------- agent checks
 class CheckBody(BaseModel):
-    agent_id: str
     tool: str
     amount_inr: float = 0.0
     cost_inr: float = 0.0
+    # Optional: if sent, it must match the agent the key belongs to.
+    agent_id: str | None = None
+
+
+def current_agent(authorization: str | None = Header(default=None)) -> str:
+    """The calling agent, identified by its own API key (`Authorization: Bearer agk_...`)."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Agent key required: Authorization: Bearer agk_...")
+    agent_id = keys().verify(authorization.removeprefix("Bearer ").strip())
+    if agent_id is None:
+        raise HTTPException(401, "Invalid or revoked agent key")
+    return agent_id
 
 
 @app.post("/v1/check")
-def check(body: CheckBody):
-    # TODO (week 2): authenticate the agent itself (per-agent key or WorkOS agent token).
-    d = guard().check(ActionRequest(body.agent_id, body.tool, body.amount_inr, body.cost_inr))
+def check(body: CheckBody, agent_id: str = Depends(current_agent)):
+    if body.agent_id and body.agent_id != agent_id:
+        raise HTTPException(403, f"This key belongs to '{agent_id}', not '{body.agent_id}'")
+    d = guard().check(ActionRequest(agent_id, body.tool, body.amount_inr, body.cost_inr))
     return {"outcome": d.outcome.value, "allowed": d.allowed, "reason": d.reason,
             "on_behalf_of": d.on_behalf_of, "approval_id": d.approval_id,
             "anomaly_score": d.anomaly_score}
@@ -122,7 +149,9 @@ def agents(_: str = Depends(current_user)):
     return [{"id": a.id, "on_behalf_of": a.on_behalf_of,
              "effective_tools": sorted(g.policy.effective_tools(a)),
              "daily_budget_inr": a.daily_budget_inr, "spent_today_inr": g.store.spent_today(a.id, now),
-             "frozen": g.store.frozen(a.id)} for a in g.policy.agents.values()]
+             **g.store.stats_today(a.id, now), "frozen": g.store.frozen(a.id),
+             "keys": [k["prefix"] for k in keys().list(a.id) if not k["revoked_at"]]}
+            for a in g.policy.agents.values()]
 
 
 @app.get("/v1/audit")
@@ -156,4 +185,27 @@ def unfreeze(agent_id: str, user_id: str = Depends(current_user)):
         guard().unfreeze(agent_id, user_id)
     except PermissionError as e:
         raise HTTPException(403, str(e))
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ agent keys
+@app.post("/v1/agents/{agent_id}/keys")
+def create_key(agent_id: str, user_id: str = Depends(current_user)):
+    """Creates a key for an agent. The full key is returned only this once."""
+    require_admin(user_id)
+    if agent_id not in guard().policy.agents:
+        raise HTTPException(404, f"Unknown agent '{agent_id}'")
+    return keys().create(agent_id, user_id)
+
+
+@app.get("/v1/agents/{agent_id}/keys")
+def list_keys(agent_id: str, _: str = Depends(current_user)):
+    return keys().list(agent_id)
+
+
+@app.delete("/v1/keys/{prefix}")
+def revoke_key(prefix: str, user_id: str = Depends(current_user)):
+    require_admin(user_id)
+    if not keys().revoke(prefix):
+        raise HTTPException(404, "No active key with that prefix")
     return {"ok": True}

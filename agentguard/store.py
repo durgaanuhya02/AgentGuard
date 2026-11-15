@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
+
+def default_db_path() -> str:
+    """AGENTGUARD_DB if set, else agentguard.db in the project root (not the current directory)."""
+    return os.getenv("AGENTGUARD_DB") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agentguard.db")
+
 
 def _ts(dt: datetime) -> str:
     """Fixed-width UTC timestamps so SQLite string comparison matches time order."""
@@ -105,6 +112,18 @@ class Store:
             (agent_id, _ts(now - window), _ts(now)),
         )
         return [dict(r) for r in rows]
+
+    def stats_today(self, agent_id: str, now: datetime) -> dict:
+        """Counts per outcome today, plus the money in actions that were stopped."""
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        rows = self.conn.execute(
+            "SELECT outcome, COUNT(*), COALESCE(SUM(amount_inr), 0) FROM audit_events"
+            " WHERE agent_id = ? AND at >= ? AND at <= ? GROUP BY outcome",
+            (agent_id, _ts(day_start), _ts(now)),
+        ).fetchall()
+        counts = {r[0]: r[1] for r in rows}
+        blocked = sum(r[2] for r in rows if r[0] in ("deny", "frozen"))
+        return {"actions_today": counts, "blocked_amount_today_inr": float(blocked)}
 
     def tools_used(self, agent_id: str) -> set[str]:
         rows = self.conn.execute(

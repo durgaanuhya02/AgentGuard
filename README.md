@@ -59,7 +59,11 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 | `agentguard/workos_client.py` | AuthKit login + Audit Logs sink |
 | `api/main.py` | FastAPI service |
 | `mcp_server/server.py` | Sample "orders" MCP server, every tool guarded |
-| `demo/rogue_refund_demo.py` | The demo story |
+| `agentguard/keys.py` | Per-agent API keys (hashed, revocable) |
+| `dashboard/` | Next.js dashboard: agents, approvals, live audit trail |
+| `demo/rogue_refund_demo.py` | The demo story, offline in one terminal |
+| `demo/simulate_traffic.py` | The same story as live traffic against the API, for the dashboard |
+| `scripts/create_agent_key.py` | Create an agent key from the command line |
 
 ## Run it
 
@@ -67,16 +71,23 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-pytest                          # 26 tests
+pytest                          # 30 tests
 uvicorn api.main:app --reload   # API on http://localhost:8000/docs
+
+cd dashboard && npm install && npm run dev -- -p 3001   # dashboard on http://localhost:3001
+python demo/simulate_traffic.py                         # live demo traffic (about 4 minutes)
 ```
+
+Agents authenticate to `/v1/check` with their own key (`Authorization: Bearer agk_...`). Admins
+create and revoke keys in the dashboard; the full key is shown once and only its hash is stored.
 
 Without WorkOS keys the API runs in dev mode: pick the human with an `X-User-Id` header
 (`priya`, `arjun`, `meera`). To use WorkOS, copy `.env.example` to `.env`, add your keys from
 the WorkOS dashboard, and set each user's `email` in `config/policies.json`. For Audit Logs, also
 create event schemas such as `agent.issue_refund.deny` in the dashboard.
 
-To use the MCP server from an MCP client, point it at `python mcp_server/server.py` (stdio).
+To use the MCP server from an MCP client, point it at `python mcp_server/server.py` (stdio) with
+`AGENTGUARD_URL=http://localhost:8000` and `AGENTGUARD_AGENT_KEY=<the agent's key>`.
 
 ## Design notes (good interview material)
 
@@ -90,17 +101,23 @@ To use the MCP server from an MCP client, point it at `python mcp_server/server.
   ₹8,000 refund shouldn't push the agent towards a freeze.
 - **Why the baseline includes calls seconds apart.** Agents chain calls (lookup → refund) while
   the LLM thinks. An early baseline without this froze normal behaviour; there's a test for it now.
+- **Latency: a check takes ~10 ms, but the first live run took 3 s per call.** Two causes, both
+  found by timing it: on Windows `localhost` tries IPv6 first while the API listens on IPv4
+  (+2.2 s, fixed by using `127.0.0.1`), and opening a new HTTP connection per call (+0.4 s, fixed
+  by reusing one client). At 3 s per call the refund loop let 5 refunds through; after the fix it
+  is frozen at the 3rd call. Keep the SQLite file outside OneDrive/Dropbox folders
+  (`AGENTGUARD_DB`): sync clients briefly lock it and cause occasional 1–2 s spikes.
 - **Limitation:** the baseline is synthetic. With real traffic, retrain per agent on its own
   history (`AnomalyDetector.fit`).
 
 ## Build plan
 
 - **Week 1 (done):** core guard, anomaly detector, API, guarded MCP server, demo, tests.
-- **Week 2:** create a WorkOS account, wire up AuthKit login and Audit Logs end to end.
-  Authenticate agents themselves on `/v1/check`. Read the WorkOS **Agents API** docs (the SDK has
-  `client.agents`: blueprints, instances, sessions) and use WorkOS agent identities instead of the
-  JSON agent list where it fits.
-- **Week 3:** Next.js dashboard: live audit feed, approve/reject buttons, frozen agents with an
-  unfreeze button, spend per agent.
+- **Week 2 (partly done):** per-agent API keys on `/v1/check` ✅. Still to do: create a WorkOS
+  account and test AuthKit login and Audit Logs end to end; read the WorkOS **Agents API** docs (the
+  SDK has `client.agents`: blueprints, instances, sessions) and use WorkOS agent identities where
+  they fit.
+- **Week 3 (done early):** Next.js dashboard with live audit feed, approve/reject buttons, frozen
+  agents with an unfreeze button, spend per agent, key management.
 - **Week 4:** connect a real LLM agent through the MCP server, record the 90-second demo, deploy
   (Render + Vercel), write the README story and the blog post, then send the cold emails.
