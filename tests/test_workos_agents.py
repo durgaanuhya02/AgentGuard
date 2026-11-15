@@ -68,3 +68,18 @@ def test_failing_freeze_hook_keeps_agent_frozen():
     for i in range(5):
         guard.check(ActionRequest("support-bot", "issue_refund", 1500, at=T0 + timedelta(seconds=0.5 * i)))
     assert guard.store.frozen("support-bot")
+
+
+def test_audit_sink_uses_registered_actions():
+    from agentguard.workos_client import AUDIT_ACTIONS, AUDIT_METADATA_KEYS, audit_sink
+
+    sent = []
+    client = SimpleNamespace(audit_logs=SimpleNamespace(create_event=lambda **kw: sent.append(kw)))
+    send = audit_sink(client, "org_1")
+    for outcome in AUDIT_ACTIONS:
+        send({"at": T0.isoformat(), "agent_id": "support-bot", "on_behalf_of": "priya",
+              "tool": "issue_refund", "amount_inr": 500.0, "cost_inr": 2.0, "outcome": outcome,
+              "reason": "x"})
+    assert [s["event"].action for s in sent] == list(AUDIT_ACTIONS.values())
+    assert set(sent[0]["event"].metadata) == set(AUDIT_METADATA_KEYS)
+    assert sent[0]["organization_id"] == "org_1"

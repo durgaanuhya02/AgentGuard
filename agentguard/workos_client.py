@@ -39,11 +39,21 @@ def authenticate(client, code: str) -> dict:
     return {"workos_id": u.id, "email": u.email, "name": u.first_name or u.email}
 
 
+AUDIT_ACTIONS = {
+    "allow": "agent_action.allowed",
+    "deny": "agent_action.denied",
+    "needs_approval": "agent_action.needs_approval",
+    "frozen": "agent_action.frozen",
+}
+AUDIT_METADATA_KEYS = {"tool": "string", "reason": "string", "amount_inr": "number",
+                       "cost_inr": "number"}
+
+
 def audit_sink(client, organization_id: str) -> AuditSink:
     """Send each AgentGuard decision to WorkOS Audit Logs.
 
-    The action names (e.g. `agent.issue_refund.deny`) must first be added as Audit Log event
-    schemas in the WorkOS dashboard, or WorkOS will reject them.
+    One WorkOS action per outcome (see AUDIT_ACTIONS); the tool goes in the metadata. Register the
+    actions once with `python scripts/setup_workos_audit_logs.py`, or WorkOS rejects the events.
     """
     from workos.audit_logs.models import (
         AuditLogEvent,
@@ -54,13 +64,14 @@ def audit_sink(client, organization_id: str) -> AuditSink:
 
     def send(e: dict) -> None:
         event = AuditLogEvent(
-            action=f"agent.{e['tool']}.{e['outcome']}",
+            action=AUDIT_ACTIONS[e["outcome"]],
             occurred_at=datetime.fromisoformat(e["at"]),
             actor=AuditLogEventActor(id=e["agent_id"], type="agent", name=e["agent_id"], metadata=None),
             targets=[AuditLogEventTarget(id=e["on_behalf_of"] or "unknown", type="user", name=None,
                                          metadata=None)],
             context=AuditLogEventContext(location="agentguard", user_agent=None),
-            metadata={"reason": e["reason"][:500], "amount_inr": float(e["amount_inr"]),
+            metadata={"tool": e["tool"], "reason": e["reason"][:500],
+                      "amount_inr": float(e["amount_inr"]),
                       "cost_inr": float(e["cost_inr"])},
             version=None,
         )

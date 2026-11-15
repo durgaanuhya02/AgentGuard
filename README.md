@@ -119,7 +119,7 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-pytest                          # 48 tests
+pytest                          # 49 tests
 uvicorn api.main:app --reload   # API on http://localhost:8000/docs
 
 cd dashboard && npm install && npm run dev -- -p 3001   # dashboard on http://localhost:3001
@@ -149,6 +149,11 @@ in `.env` (copy `.env.example`), add `http://localhost:3001/api/auth/callback` a
 WorkOS → Applications → your app → Redirects, and map your login email to a user with
 `AGENTGUARD_USER_EMAILS=meera:you@example.com` (kept in `.env`, so real emails stay out of git).
 The dashboard then shows "Sign in with WorkOS" and "Signed in as … via WorkOS".
+
+**WorkOS Audit Logs (tested live):** run `python scripts/setup_workos_audit_logs.py` once to register
+four actions (`agent_action.allowed`, `.denied`, `.needs_approval`, `.frozen`; the tool name is in the
+event metadata). With `WORKOS_ORGANIZATION_ID` set, every AgentGuard decision then also appears in
+WorkOS under Organizations → your organization → Audit Logs, with the agent as the actor.
 
 Without WorkOS keys the API runs in dev mode: pick the human with an `X-User-Id` header
 (`priya`, `arjun`, `meera`). To use WorkOS, copy `.env.example` to `.env`, add your keys from
@@ -186,9 +191,9 @@ To use the MCP server from an MCP client, point it at `python mcp_server/server.
 ## Build plan
 
 - **Week 1 (done):** core guard, anomaly detector, API, guarded MCP server, demo, tests.
-- **Week 2 (mostly done):** per-agent API keys ✅, WorkOS AuthKit login tested live ✅, WorkOS
-  Agent Auth tokens accepted and sessions revoked on freeze ✅ (against a fake client). Still to do:
-  Audit Logs and Agent Auth against live WorkOS.
+- **Week 2 (mostly done):** per-agent API keys ✅, WorkOS AuthKit login ✅ and Audit Logs ✅ tested
+  live, WorkOS Agent Auth tokens accepted and sessions revoked on freeze ✅ (against a fake client).
+  Still to do: Agent Auth against live WorkOS.
 - **Week 3 (done early):** Next.js dashboard with live audit feed, approve/reject buttons, frozen
   agents with an unfreeze button, spend per agent, key management.
 - **Week 4:** real LLM agent through the MCP server ✅ (local Ollama). Still to do: record the 90-second demo, deploy
