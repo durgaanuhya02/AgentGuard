@@ -30,6 +30,8 @@ class Agent:
     scopes: set[str]
     daily_budget_inr: float
     daily_call_limit: dict[str, int] = field(default_factory=dict)
+    # WorkOS Agent Auth blueprint this agent's tokens are minted from (optional).
+    workos_blueprint_id: str | None = None
 
 
 class Policy:
@@ -55,6 +57,7 @@ class Policy:
                 scopes=set(a["scopes"]),
                 daily_budget_inr=float(a["daily_budget_inr"]),
                 daily_call_limit=a.get("daily_call_limit", {}),
+                workos_blueprint_id=a.get("workos_blueprint_id"),
             )
             for aid, a in raw["agents"].items()
         }

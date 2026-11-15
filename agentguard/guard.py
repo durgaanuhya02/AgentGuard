@@ -11,16 +11,20 @@ from agentguard.policy import Policy
 from agentguard.store import Store
 
 AuditSink = Callable[[dict], None]
+# Called with (agent_id, reason) right after an agent is frozen, e.g. to revoke its WorkOS session.
+FreezeHook = Callable[[str, str], None]
 
 
 class Guard:
     def __init__(self, policy: Policy | None = None, store: Store | None = None,
-                 detector: AnomalyDetector | None = None, sinks: list[AuditSink] | None = None):
+                 detector: AnomalyDetector | None = None, sinks: list[AuditSink] | None = None,
+                 freeze_hooks: list[FreezeHook] | None = None):
         self.policy = policy or Policy.load()
         self.store = store or Store()
         self.detector = detector or AnomalyDetector()
         # Extra places to send every audit event, e.g. WorkOS Audit Logs.
         self.sinks = sinks or []
+        self.freeze_hooks = freeze_hooks or []
 
     # ------------------------------------------------------------------ check
     def check(self, req: ActionRequest) -> Decision:
@@ -44,6 +48,9 @@ class Guard:
                 why = (f"{user.name} ({user.role}) launched this agent and is not allowed to use "
                        f"'{req.tool}', so the agent can't either")
             return self._finish(req, now, user.id, Outcome.DENY, why)
+        if req.ceiling is not None and req.tool not in req.ceiling:
+            return self._finish(req, now, user.id, Outcome.DENY,
+                                f"The agent's credential doesn't grant '{req.tool}'")
 
         # 3. Daily spend cap (what running the agent costs).
         spent = self.store.spent_today(agent.id, now)
@@ -60,13 +67,18 @@ class Guard:
 
         # 5. Behaviour check. Runs before approvals so a loop of large actions is still caught.
         recent = self.store.recent_attempts(agent.id, now, timedelta(hours=1))
-        features = build_features(now, recent, req.amount_inr,
+        features = build_features(now, recent, req.tool, req.amount_inr,
                                   is_new_tool=req.tool not in self.store.tools_used(agent.id))
         score, anomalous, should_freeze = self.detector.observe(agent.id, features)
         if should_freeze:
-            reason = (f"Unusual behaviour ({int(features[0]) + 1} calls in 60s, "
-                      f"{features[1]:.1f}s apart). Agent frozen for admin review")
+            reason = (f"Unusual behaviour: {self.detector.explain(features)}. "
+                      "Agent frozen for admin review")
             self.store.freeze(agent.id, now, reason)
+            for hook in self.freeze_hooks:
+                try:
+                    hook(agent.id, reason)
+                except Exception:  # a failing hook must never undo the freeze
+                    pass
             return self._finish(req, now, user.id, Outcome.FROZEN, reason, score)
 
         # 6. Large actions need a human.

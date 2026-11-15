@@ -40,6 +40,12 @@ def build_guard() -> Guard:
 
 def init_state() -> None:
     app.state.guard = build_guard()
+    # WorkOS Agent Auth tokens are accepted alongside agk_ keys when WorkOS is configured.
+    client = workos_client.get_client()
+    app.state.agent_tokens = (workos_client.AgentTokenVerifier(client, app.state.guard.policy)
+                              if client else None)
+    if app.state.agent_tokens:
+        app.state.guard.freeze_hooks.append(app.state.agent_tokens.revoke_on_freeze)
     app.state.keys = KeyStore(app.state.guard.store)
 
 
@@ -122,21 +128,34 @@ class CheckBody(BaseModel):
     agent_id: str | None = None
 
 
-def current_agent(authorization: str | None = Header(default=None)) -> str:
-    """The calling agent, identified by its own API key (`Authorization: Bearer agk_...`)."""
+def current_agent(authorization: str | None = Header(default=None)) -> tuple[str, set[str] | None]:
+    """The calling agent and any permission ceiling from its credential.
+
+    Accepts an AgentGuard key (`Bearer agk_...`) or, when WorkOS is configured, a WorkOS Agent
+    Auth access token minted from the agent's blueprint.
+    """
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Agent key required: Authorization: Bearer agk_...")
-    agent_id = keys().verify(authorization.removeprefix("Bearer ").strip())
-    if agent_id is None:
-        raise HTTPException(401, "Invalid or revoked agent key")
-    return agent_id
+        raise HTTPException(401, "Agent credential required: Authorization: Bearer <key or token>")
+    credential = authorization.removeprefix("Bearer ").strip()
+    if credential.startswith("agk_"):
+        agent_id = keys().verify(credential)
+        if agent_id is None:
+            raise HTTPException(401, "Invalid or revoked agent key")
+        return agent_id, None
+    verifier = app.state.agent_tokens
+    found = verifier.verify(credential) if verifier else None
+    if found is None:
+        raise HTTPException(401, "Invalid agent credential")
+    return found
 
 
 @app.post("/v1/check")
-def check(body: CheckBody, agent_id: str = Depends(current_agent)):
+def check(body: CheckBody, caller: tuple[str, set[str] | None] = Depends(current_agent)):
+    agent_id, ceiling = caller
     if body.agent_id and body.agent_id != agent_id:
-        raise HTTPException(403, f"This key belongs to '{agent_id}', not '{body.agent_id}'")
-    d = guard().check(ActionRequest(agent_id, body.tool, body.amount_inr, body.cost_inr))
+        raise HTTPException(403, f"This credential belongs to '{agent_id}', not '{body.agent_id}'")
+    d = guard().check(ActionRequest(agent_id, body.tool, body.amount_inr, body.cost_inr,
+                                    ceiling=ceiling))
     return {"outcome": d.outcome.value, "allowed": d.allowed, "reason": d.reason,
             "on_behalf_of": d.on_behalf_of, "approval_id": d.approval_id,
             "anomaly_score": d.anomaly_score}

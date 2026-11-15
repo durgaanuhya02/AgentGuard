@@ -22,6 +22,9 @@ class ActionRequest:
     amount_inr: float = 0.0
     # What the call costs to run (API/LLM spend). Counted against the daily budget.
     cost_inr: float = 0.0
+    # Extra permission ceiling from the agent's credential, e.g. the permissions in a WorkOS agent
+    # token. None = no extra ceiling.
+    ceiling: set[str] | None = None
     at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

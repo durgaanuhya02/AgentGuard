@@ -140,3 +140,16 @@ def test_failing_audit_sink_does_not_block(guard):
         raise RuntimeError("WorkOS down")
     guard.sinks.append(broken)
     assert guard.check(req()).outcome == Outcome.ALLOW
+
+
+def test_llm_speed_repeated_refunds_are_frozen(guard):
+    # A prompt-injected LLM agent repeats the same refund every ~5 s: too slow for the burst
+    # signal alone, caught by the repetition signal.
+    outcomes = [guard.check(req(amount=2000, at=T0 + timedelta(seconds=5 * i))).outcome
+                for i in range(8)]
+    assert outcomes.index(Outcome.FROZEN) <= 3
+
+
+def test_different_refunds_minutes_apart_are_normal(guard):
+    for i, amount in enumerate([450, 1200, 300, 899, 650]):
+        assert guard.check(req(amount=amount, at=T0 + timedelta(minutes=4 * i))).outcome == Outcome.ALLOW

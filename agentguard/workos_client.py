@@ -67,3 +67,53 @@ def audit_sink(client, organization_id: str) -> AuditSink:
         client.audit_logs.create_event(organization_id=organization_id, event=event)
 
     return send
+
+
+class AgentTokenVerifier:
+    """Accept WorkOS Agent Auth tokens (minted from a blueprint) as agent credentials.
+
+    WorkOS handles agent identity: who the agent is, which user it acts for, its permission
+    ceiling, and revocation. AgentGuard adds what WorkOS doesn't: spend caps, human approval and
+    behavioural freezing. When AgentGuard freezes an agent, `revoke_on_freeze` also revokes the
+    WorkOS sessions it has seen for that agent, so the agent's tokens stop working everywhere.
+
+    Map an agent to its blueprint with `"workos_blueprint_id"` in config/policies.json. The token's
+    permissions are used as an extra ceiling, so name WorkOS permissions after the tools
+    (e.g. `issue_refund`). Untested against live WorkOS so far.
+    """
+
+    CACHE_SECONDS = 30
+
+    def __init__(self, client, policy):
+        self.client = client
+        self.policy = policy
+        self.sessions: dict[str, set[str]] = {}
+        self._cache: dict[str, tuple[float, str, set[str]]] = {}
+
+    def verify(self, token: str) -> tuple[str, set[str]] | None:
+        """Returns (agent_id, permissions) for a valid token, else None."""
+        import hashlib
+        import time
+
+        key = hashlib.sha256(token.encode()).hexdigest()
+        hit = self._cache.get(key)
+        if hit and time.monotonic() - hit[0] < self.CACHE_SECONDS:
+            return hit[1], hit[2]
+        for agent in self.policy.agents.values():
+            if not agent.workos_blueprint_id:
+                continue
+            try:
+                v = self.client.agents.validate_blueprint_token(
+                    agent.workos_blueprint_id, agent_access_token=token)
+            except Exception:  # invalid tokens are raised as errors, not valid=False
+                continue
+            perms = set(v.permissions or [])
+            self.sessions.setdefault(agent.id, set()).add(v.agent_instance_session_id)
+            self._cache[key] = (time.monotonic(), agent.id, perms)
+            return agent.id, perms
+        return None
+
+    def revoke_on_freeze(self, agent_id: str, reason: str) -> None:
+        for session_id in self.sessions.pop(agent_id, set()):
+            self.client.agents.revoke_session(session_id)
+        self._cache = {k: v for k, v in self._cache.items() if v[1] != agent_id}

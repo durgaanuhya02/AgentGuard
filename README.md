@@ -19,6 +19,19 @@ call an agent makes and answers four questions:
 Every decision is written to an audit trail, locally and optionally to **WorkOS Audit Logs**.
 Humans sign in with **WorkOS AuthKit**.
 
+## How it fits with WorkOS
+
+WorkOS **Agent Auth** gives each first-party agent an identity: a blueprint, a permission ceiling,
+the user it acts for, and revocable sessions. It does not cover spend limits, per-action human
+approval or behaviour-based stopping. AgentGuard is that layer on top:
+
+- `/v1/check` accepts a **WorkOS agent access token** (validated against the agent's blueprint)
+  as well as AgentGuard's own `agk_` keys. The token's permissions become an extra ceiling.
+- When AgentGuard **freezes** an agent, it also **revokes the agent's WorkOS session**, so its
+  tokens stop working everywhere, not just here.
+
+This path is tested against a fake WorkOS client; it hasn't run against live WorkOS yet.
+
 ## Demo
 
 ```bash
@@ -64,6 +77,8 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 | `demo/rogue_refund_demo.py` | The demo story, offline in one terminal |
 | `demo/simulate_traffic.py` | The same story as live traffic against the API, for the dashboard |
 | `scripts/create_agent_key.py` | Create an agent key from the command line |
+| `scripts/reset_demo.py` | Wipe the local database before recording a demo |
+| `agent/run_agent.py` | A real LLM agent (local Ollama model) using the guarded MCP server |
 
 ## Run it
 
@@ -71,12 +86,25 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-pytest                          # 30 tests
+pytest                          # 36 tests
 uvicorn api.main:app --reload   # API on http://localhost:8000/docs
 
 cd dashboard && npm install && npm run dev -- -p 3001   # dashboard on http://localhost:3001
 python demo/simulate_traffic.py                         # live demo traffic (about 4 minutes)
 ```
+
+A real LLM agent (needs [Ollama](https://ollama.com) and `ollama pull llama3.2`):
+
+```bash
+python agent/run_agent.py normal                                   # looks up and refunds an order
+python agent/run_agent.py injection --api http://127.0.0.1:8000   # prompt-injection attack, live in the dashboard
+```
+
+Result with llama3.2 (3B) at temperature 0: told by fake "admin" text to issue ten ₹2,000 refunds,
+the model called `issue_refund` again and again. AgentGuard froze it on the 4th call, so 3 went
+through (₹6,000 of ₹20,000). The agent then told the customer it had been blocked and escalated.
+The `indirect-injection` scenario hides the same instruction in order data; the 3B model read it
+but didn't act on it in our runs.
 
 Agents authenticate to `/v1/check` with their own key (`Authorization: Bearer agk_...`). Admins
 create and revoke keys in the dashboard; the full key is shown once and only its hash is stored.
@@ -107,17 +135,20 @@ To use the MCP server from an MCP client, point it at `python mcp_server/server.
   by reusing one client). At 3 s per call the refund loop let 5 refunds through; after the fix it
   is frozen at the 3rd call. Keep the SQLite file outside OneDrive/Dropbox folders
   (`AGENTGUARD_DB`): sync clients briefly lock it and cause occasional 1–2 s spikes.
+- **Why a repetition signal.** Against a real prompt-injected LLM, calls arrive ~5 s apart (model
+  thinking time), too slow for the burst signal: 5 refunds got through before the freeze. Adding
+  "same money-moving action repeated in 10 min" as a feature cut that to 3. Freeze reasons now
+  say in plain words which signal fired.
 - **Limitation:** the baseline is synthetic. With real traffic, retrain per agent on its own
   history (`AnomalyDetector.fit`).
 
 ## Build plan
 
 - **Week 1 (done):** core guard, anomaly detector, API, guarded MCP server, demo, tests.
-- **Week 2 (partly done):** per-agent API keys on `/v1/check` ✅. Still to do: create a WorkOS
-  account and test AuthKit login and Audit Logs end to end; read the WorkOS **Agents API** docs (the
-  SDK has `client.agents`: blueprints, instances, sessions) and use WorkOS agent identities where
-  they fit.
+- **Week 2 (mostly done):** per-agent API keys ✅, WorkOS Agent Auth tokens accepted and sessions
+  revoked on freeze ✅ (against a fake client). Still to do: create a WorkOS account and test
+  AuthKit login, Audit Logs and Agent Auth against live WorkOS.
 - **Week 3 (done early):** Next.js dashboard with live audit feed, approve/reject buttons, frozen
   agents with an unfreeze button, spend per agent, key management.
-- **Week 4:** connect a real LLM agent through the MCP server, record the 90-second demo, deploy
+- **Week 4:** real LLM agent through the MCP server ✅ (local Ollama). Still to do: record the 90-second demo, deploy
   (Render + Vercel), write the README story and the blog post, then send the cold emails.
