@@ -8,8 +8,8 @@ human, limited in cost, and stoppable.** Built on WorkOS (AuthKit, Audit Logs, A
 | | |
 |---|---|
 | **Live demo (no sign-in)** | https://agentguard-liard.vercel.app/demo |
-| **Live dashboard (admin)** | https://agentguard-liard.vercel.app (Vercel) |
-| **Live API** | https://agentguard-api-cx0v.onrender.com/health (Render, free tier) |
+| **Live dashboard (admin)** | https://agentguard-liard.vercel.app  |
+| **Live API** | https://agentguard-api-cx0v.onrender.com/health |
 
 > **Anyone can watch it:** visitors to the dashboard address land on a read-only view of the live
 > data (no buttons, no keys, no emails). It's turned on with `AGENTGUARD_PUBLIC_DEMO=1` because this
