@@ -106,3 +106,10 @@ export const istTime = (iso: string) =>
     second: "2-digit",
     hour12: false,
   });
+
+// Read-only snapshot served to the public demo page (no keys, emails or actions).
+export interface PublicOverview {
+  agents: Omit<Agent, "keys">[];
+  audit: Pick<AuditEvent, "id" | "at" | "agent_id" | "on_behalf_of" | "tool" | "amount_inr" | "outcome" | "reason" | "intent">[];
+  approvals: Pick<Approval, "id" | "created_at" | "agent_id" | "on_behalf_of" | "tool" | "amount_inr" | "reason" | "intent">[];
+}

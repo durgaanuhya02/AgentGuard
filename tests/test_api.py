@@ -90,3 +90,21 @@ def test_health_is_public_and_shows_no_secrets(client):
     r = client.get("/health")
     assert r.status_code == 200 and r.json()["ok"] is True
     assert "sk_" not in r.text and "key" not in r.text.lower()
+
+
+def test_public_overview_is_off_by_default(client):
+    assert client.get("/v1/public/overview").status_code == 404
+
+
+def test_public_overview_is_read_only_and_leaks_nothing(client, monkeypatch):
+    monkeypatch.setenv("AGENTGUARD_PUBLIC_DEMO", "1")
+    h = agent_headers(client)
+    client.post("/v1/check", json={"tool": "issue_refund", "amount_inr": 8000}, headers=h)
+    r = client.get("/v1/public/overview")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["approvals"]) == 1 and body["audit"][0]["outcome"] == "needs_approval"
+    text = r.text
+    assert "agk_" not in text and "@" not in text and "keys" not in body["agents"][0]
+    # no way to act through the public API
+    assert client.post("/v1/public/overview").status_code == 405

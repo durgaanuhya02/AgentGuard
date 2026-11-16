@@ -278,3 +278,29 @@ def explain(agent_id: str, _: str = Depends(current_user)):
         from agentguard.copilot import rule_summary
         explanation = rule_summary(facts)
     return {"facts": facts, "explanation": explanation}
+
+
+# ------------------------------------------------------------- public read-only demo
+PUBLIC_AUDIT_FIELDS = ("id", "at", "agent_id", "on_behalf_of", "tool", "amount_inr", "outcome",
+                       "reason", "intent")
+PUBLIC_APPROVAL_FIELDS = ("id", "created_at", "agent_id", "on_behalf_of", "tool", "amount_inr",
+                          "reason", "intent")
+
+
+@app.get("/v1/public/overview")
+def public_overview():
+    """Read-only snapshot for the public demo page, so visitors can see AgentGuard working
+    without an account. Off unless AGENTGUARD_PUBLIC_DEMO=1. Never returns keys, emails or
+    secrets, and offers no actions. Only enable it on a deployment that holds demo data."""
+    if os.getenv("AGENTGUARD_PUBLIC_DEMO") != "1":
+        raise HTTPException(404, "Public demo is not enabled")
+    g, now = guard(), datetime.now(timezone.utc)
+    agents = [{"id": a.id, "on_behalf_of": a.on_behalf_of,
+               "effective_tools": sorted(g.policy.effective_tools(a)),
+               "daily_budget_inr": a.daily_budget_inr,
+               "spent_today_inr": g.store.spent_today(a.id, now),
+               **g.store.stats_today(a.id, now),
+               "frozen": g.store.frozen(a.id)} for a in g.policy.agents.values()]
+    audit = [{k: e.get(k) for k in PUBLIC_AUDIT_FIELDS} for e in g.store.audit(limit=50)]
+    approvals = [{k: p.get(k) for k in PUBLIC_APPROVAL_FIELDS} for p in g.store.list_approvals()]
+    return {"agents": agents, "audit": audit, "approvals": approvals}

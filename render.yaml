@@ -12,6 +12,9 @@ services:
         value: rules
       - key: SESSION_SECRET
         generateValue: true
+      # Public read-only demo page (/demo). This deployment only holds demo data.
+      - key: AGENTGUARD_PUBLIC_DEMO
+        value: "1"
       # Fill these in the Render dashboard (never commit them):
       - key: WORKOS_API_KEY
         sync: false
