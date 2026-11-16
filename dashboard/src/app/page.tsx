@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Agent,
@@ -26,6 +27,7 @@ export default function Dashboard() {
   const [devUser, setDevUserState] = useState<string>("meera");
   const [me, setMe] = useState<Me | null>(null);
   const [needsLogin, setNeedsLogin] = useState(false);
+  const router = useRouter();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -109,6 +111,11 @@ export default function Dashboard() {
     }),
     { actions: 0, stopped: 0, money: 0, spend: 0 },
   );
+
+  // Visitors who aren't signed in go straight to the public read-only demo.
+  useEffect(() => {
+    if (needsLogin) router.replace("/demo");
+  }, [needsLogin, router]);
 
   if (needsLogin) {
     return (

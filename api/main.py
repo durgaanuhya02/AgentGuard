@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from datetime import datetime, timezone  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request  # noqa: E402
 from fastapi.responses import RedirectResponse  # noqa: E402
@@ -30,6 +30,7 @@ load_env()
 from agentguard import ActionRequest, Guard  # noqa: E402
 from agentguard import workos_client  # noqa: E402
 from agentguard.copilot import build_explainer, incident_facts  # noqa: E402
+from agentguard.demo_seed import seed_if_empty  # noqa: E402
 from agentguard.intent import build_judge  # noqa: E402
 from agentguard.keys import KeyStore  # noqa: E402
 from agentguard.store import Store, default_db_path  # noqa: E402
@@ -56,6 +57,15 @@ def init_state() -> None:
                               if client else None)
     if app.state.agent_tokens:
         app.state.guard.freeze_hooks.append(app.state.agent_tokens.revoke_on_freeze)
+    # Public demo deployments lose their data on every restart (free hosting): refill the story so
+    # visitors never see an empty page. Not sent to WorkOS Audit Logs, to avoid duplicates.
+    if os.getenv("AGENTGUARD_PUBLIC_DEMO") == "1":
+        g = app.state.guard
+        sinks, g.sinks = g.sinks, []
+        try:
+            seed_if_empty(g)
+        finally:
+            g.sinks = sinks
     app.state.keys = KeyStore(app.state.guard.store)
 
 
@@ -295,11 +305,12 @@ def public_overview():
     if os.getenv("AGENTGUARD_PUBLIC_DEMO") != "1":
         raise HTTPException(404, "Public demo is not enabled")
     g, now = guard(), datetime.now(timezone.utc)
+    since = now - timedelta(hours=24)  # "last 24 h", so a story seeded this morning still counts
     agents = [{"id": a.id, "on_behalf_of": a.on_behalf_of,
                "effective_tools": sorted(g.policy.effective_tools(a)),
                "daily_budget_inr": a.daily_budget_inr,
-               "spent_today_inr": g.store.spent_today(a.id, now),
-               **g.store.stats_today(a.id, now),
+               "spent_today_inr": g.store.spent_today(a.id, now, since),
+               **g.store.stats_today(a.id, now, since),
                "frozen": g.store.frozen(a.id)} for a in g.policy.agents.values()]
     audit = [{k: e.get(k) for k in PUBLIC_AUDIT_FIELDS} for e in g.store.audit(limit=50)]
     approvals = [{k: p.get(k) for k in PUBLIC_APPROVAL_FIELDS} for p in g.store.list_approvals()]

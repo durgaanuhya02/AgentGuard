@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PublicOverview, inr, istTime } from "@/lib/api";
 import { AiChip, OUTCOME_LABEL, OUTCOME_STYLE, Stat, card, isAi } from "@/components/ui";
@@ -52,9 +51,9 @@ export default function PublicDemo() {
             <a className="text-blue-600 hover:underline" href={REPO}>
               Code on GitHub
             </a>
-            <Link className="text-blue-600 hover:underline" href="/">
+            <a className="text-blue-600 hover:underline" href="/api/auth/login">
               Admin sign-in
-            </Link>
+            </a>
           </div>
         </div>
         <p className="max-w-3xl text-sm text-zinc-600 dark:text-zinc-400">

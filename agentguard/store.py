@@ -103,8 +103,8 @@ class Store:
         q += " ORDER BY id DESC LIMIT ?"
         return [dict(r) for r in self.conn.execute(q, args + (limit,))]
 
-    def spent_today(self, agent_id: str, now: datetime) -> float:
-        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    def spent_today(self, agent_id: str, now: datetime, since: datetime | None = None) -> float:
+        day_start = since or now.replace(hour=0, minute=0, second=0, microsecond=0)
         row = self.conn.execute(
             "SELECT COALESCE(SUM(cost_inr), 0) FROM audit_events"
             " WHERE agent_id = ? AND outcome = 'allow' AND at >= ? AND at <= ?",
@@ -130,9 +130,9 @@ class Store:
         )
         return [dict(r) for r in rows]
 
-    def stats_today(self, agent_id: str, now: datetime) -> dict:
-        """Counts per outcome today, plus the money in actions that were stopped."""
-        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    def stats_today(self, agent_id: str, now: datetime, since: datetime | None = None) -> dict:
+        """Counts per outcome today (or since `since`), plus the money in actions that were stopped."""
+        day_start = since or now.replace(hour=0, minute=0, second=0, microsecond=0)
         rows = self.conn.execute(
             "SELECT outcome, COUNT(*), COALESCE(SUM(amount_inr), 0) FROM audit_events"
             " WHERE agent_id = ? AND at >= ? AND at <= ? GROUP BY outcome",

@@ -12,9 +12,11 @@ human, limited in cost, and stoppable.** Built on WorkOS (AuthKit, Audit Logs, A
 | **Live API** | https://agentguard-api-cx0v.onrender.com/health (Render, free tier) |
 | **Deploy it yourself** | [docs/DEPLOY.md](docs/DEPLOY.md) |
 
-> **Start with the demo link:** it's a read-only view of the live data (no buttons, no keys, no
-> emails), turned on with `AGENTGUARD_PUBLIC_DEMO=1` because this deployment only holds demo data.
-> The full dashboard is behind WorkOS sign-in for the admin. The live API runs on Render's free tier: it sleeps when idle (the
+> **Anyone can watch it:** visitors to the dashboard address land on a read-only view of the live
+> data (no buttons, no keys, no emails). It's turned on with `AGENTGUARD_PUBLIC_DEMO=1` because this
+> deployment only holds demo data; the free server wipes its data on restart, so the API refills the
+> demo story by itself whenever it starts empty (`agentguard/demo_seed.py`). Actions (approve,
+> unfreeze, keys) stay behind WorkOS sign-in for the admin. The live API runs on Render's free tier: it sleeps when idle (the
 > first request can take ~1 minute), its data resets on restart, and it has no AI model, so the
 > intent check runs in rules-only mode. The AI features run locally (see "Run it").
 
@@ -26,7 +28,7 @@ human, limited in cost, and stoppable.** Built on WorkOS (AuthKit, Audit Logs, A
 - **Refund loops frozen** on the 3rd call at machine speed, and on the 4th at LLM speed.
 - **WorkOS, tested live:** AuthKit login, Audit Logs (every decision appears in WorkOS), and Agent
   Auth (a real agent token accepted; on freeze, AgentGuard revoked the agent's WorkOS session).
-- **Deployed** (Render + Vercel), **Dockerised**, **CI on every push**, 59 tests.
+- **Deployed** (Render + Vercel), **Dockerised**, **CI on every push**, 69 tests.
 
 ## What it does
 
@@ -166,7 +168,7 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-pytest                          # 59 tests
+pytest                          # 69 tests
 uvicorn api.main:app --reload   # API on http://localhost:8000/docs
 
 cd dashboard && npm install && npm run dev -- -p 3001   # dashboard on http://localhost:3001
