@@ -21,8 +21,8 @@ services:
         sync: false
       - key: AGENTGUARD_USER_EMAILS
         sync: false
-      # https://<your-dashboard>.vercel.app/api/auth/callback  and  https://<your-dashboard>.vercel.app
+      # Where the dashboard lives (not secret). Change both to your own Vercel URL if you fork this.
       - key: WORKOS_REDIRECT_URI
-        sync: false
+        value: https://agentguard-liard.vercel.app/api/auth/callback
       - key: DASHBOARD_URL
-        sync: false
+        value: https://agentguard-liard.vercel.app

@@ -74,11 +74,11 @@ approval or behaviour-based stopping. AgentGuard is that layer on top:
 - When AgentGuard **freezes** an agent, it also **revokes the agent's WorkOS session**, so its
   tokens stop working everywhere, not just here.
 
-This path is tested against a fake WorkOS client. Live testing needs Agent Auth enabled on the
-WorkOS account (dashboard → Agents → Agent Auth → *Request access*); once it is, set
-`AGENTGUARD_WORKOS_BLUEPRINTS=support-bot:<blueprint id>` in `.env` and run
-`python scripts/test_workos_agent_auth.py`. It mints a real WorkOS agent token, uses it with
-AgentGuard, triggers a freeze, and checks that WorkOS then rejects the token.
+**Tested live against WorkOS:** a real agent token minted from a WorkOS blueprint was accepted
+by `/v1/check`; a refund loop got the agent frozen; WorkOS then reported the agent's session as
+`revoked` and rejected the token. Reproduce with `python scripts/test_workos_agent_auth.py`
+(needs Agent Auth enabled, the `lookup_order` / `issue_refund` permissions under WorkOS →
+Authorization, and `AGENTGUARD_WORKOS_BLUEPRINTS=support-bot:<blueprint id>` in `.env`).
 
 ## Demo
 
@@ -216,9 +216,8 @@ To use the MCP server from an MCP client, point it at `python mcp_server/server.
 ## Build plan
 
 - **Week 1 (done):** core guard, anomaly detector, API, guarded MCP server, demo, tests.
-- **Week 2 (mostly done):** per-agent API keys ✅, WorkOS AuthKit login ✅ and Audit Logs ✅ tested
-  live, WorkOS Agent Auth tokens accepted and sessions revoked on freeze ✅ (against a fake client).
-  Still to do: Agent Auth against live WorkOS.
+- **Week 2 (done):** per-agent API keys ✅; WorkOS AuthKit login ✅, Audit Logs ✅ and Agent Auth
+  (tokens accepted, session revoked on freeze) ✅, all tested live.
 - **Week 3 (done early):** Next.js dashboard with live audit feed, approve/reject buttons, frozen
   agents with an unfreeze button, spend per agent, key management.
 - **Week 4:** real LLM agent through the MCP server ✅ (local Ollama). Still to do: record the 90-second demo, deploy
