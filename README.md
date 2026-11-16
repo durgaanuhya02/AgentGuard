@@ -10,7 +10,6 @@ human, limited in cost, and stoppable.** Built on WorkOS (AuthKit, Audit Logs, A
 | **Live demo (no sign-in)** | https://agentguard-liard.vercel.app/demo |
 | **Live dashboard (admin)** | https://agentguard-liard.vercel.app (Vercel) |
 | **Live API** | https://agentguard-api-cx0v.onrender.com/health (Render, free tier) |
-| **Deploy it yourself** | [docs/DEPLOY.md](docs/DEPLOY.md) |
 
 > **Anyone can watch it:** visitors to the dashboard address land on a read-only view of the live
 > data (no buttons, no keys, no emails). It's turned on with `AGENTGUARD_PUBLIC_DEMO=1` because this
@@ -210,47 +209,6 @@ Without WorkOS keys the API runs in dev mode: pick the human with an `X-User-Id`
 To use the MCP server from an MCP client, point it at `python mcp_server/server.py` (stdio) with
 `AGENTGUARD_URL=http://localhost:8000` and `AGENTGUARD_AGENT_KEY=<the agent's key>`.
 
-## Deploy
 
-- `docker compose up --build` runs the API and dashboard together locally.
-- Cloud: API on Render (`render.yaml`), dashboard on Vercel, live at
-  https://agentguard-liard.vercel.app. Step by step in [docs/DEPLOY.md](docs/DEPLOY.md). In the
-  cloud there's no local model, so `AGENTGUARD_JUDGE=rules`.
-- CI (GitHub Actions) runs the tests, dashboard lint/type-check/build, and both Docker builds.
-- Recording the demo: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
-## Design notes (good interview material)
 
-- **Why the anomaly detector also checks feature ranges.** Isolation Forest only splits inside
-  the range of its training data. A burst of 12 calls/minute, when training never exceeded 3,
-  lands in the same leaf as a normal edge point, so it isn't scored as unusual. The first version
-  missed the loop entirely; a per-feature range check fixed it.
-- **Why two flags before freezing.** One odd call (the first request after a quiet hour) shouldn't
-  freeze an agent. Two of the last three calls flagged = freeze.
-- **Why amount isn't range-checked.** Large amounts are handled by human approval. An approved
-  ₹8,000 refund shouldn't push the agent towards a freeze.
-- **Why the baseline includes calls seconds apart.** Agents chain calls (lookup → refund) while
-  the LLM thinks. An early baseline without this froze normal behaviour; there's a test for it now.
-- **Latency: a check takes ~10 ms, but the first live run took 3 s per call.** Two causes, both
-  found by timing it: on Windows `localhost` tries IPv6 first while the API listens on IPv4
-  (+2.2 s, fixed by using `127.0.0.1`), and opening a new HTTP connection per call (+0.4 s, fixed
-  by reusing one client). At 3 s per call the refund loop let 5 refunds through; after the fix it
-  is frozen at the 3rd call. Keep the SQLite file outside OneDrive/Dropbox folders
-  (`AGENTGUARD_DB`): sync clients briefly lock it and cause occasional 1–2 s spikes.
-- **Why a repetition signal.** Against a real prompt-injected LLM, calls arrive ~5 s apart (model
-  thinking time), too slow for the burst signal: 5 refunds got through before the freeze. Adding
-  "same money-moving action repeated in 10 min" as a feature cut that to 3. Freeze reasons now
-  say in plain words which signal fired.
-- **Limitation:** the baseline is synthetic. With real traffic, retrain per agent on its own
-  history (`AnomalyDetector.fit`).
-
-## Build plan
-
-- **Week 1 (done):** core guard, anomaly detector, API, guarded MCP server, demo, tests.
-- **Week 2 (done):** per-agent API keys ✅; WorkOS AuthKit login ✅, Audit Logs ✅ and Agent Auth
-  (tokens accepted, session revoked on freeze) ✅, all tested live.
-- **Week 3 (done early):** Next.js dashboard with live audit feed, approve/reject buttons, frozen
-  agents with an unfreeze button, spend per agent, key management.
-- **Week 4:** real LLM agent through the MCP server ✅ (local Ollama), AI intent check ✅, incident
-  copilot ✅, Docker + CI ✅, deployed on Render + Vercel ✅. Still to do: record the 90-second demo
-  video, write a short blog post, send the cold emails.
