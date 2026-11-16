@@ -35,4 +35,9 @@ login cookie just works.
   Logs keep their copy either way.
 - **Cold starts.** Free Render services sleep when idle; the first request can take ~30-60 s.
 - **Agent keys.** Create them in the dashboard (admin) after signing in.
+- **A fresh deployment is empty.** To give visitors something to look at, create a key for
+  `support-bot` and `intern-helper` in the dashboard and run
+  `AGENTGUARD_SUPPORT_KEY=agk_... AGENTGUARD_INTERN_KEY=agk_... python scripts/seed_live_demo.py --api https://<dashboard>.vercel.app/api`
+  (honest refunds, a denied intern refund, a prompt injection sent to a human, a large refund
+  awaiting approval, and a refund loop that gets frozen). Re-run it after a restart wipes the data.
 - **Local everything:** `docker compose up --build` runs API + dashboard together.

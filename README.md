@@ -1,11 +1,36 @@
 # AgentGuard
 
+[![CI](https://github.com/durgaanuhya02/AgentGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/durgaanuhya02/AgentGuard/actions/workflows/ci.yml)
+
 **Identity, spending caps and anomaly detection for AI agents, so every agent action is tied to a
-human, limited in cost, and stoppable.**
+human, limited in cost, and stoppable.** Built on WorkOS (AuthKit, Audit Logs, Agent Auth).
+
+| | |
+|---|---|
+| **Live dashboard** | https://agentguard-liard.vercel.app (Vercel) |
+| **Live API** | https://agentguard-api-cx0v.onrender.com/health (Render, free tier) |
+| **Deploy it yourself** | [docs/DEPLOY.md](docs/DEPLOY.md) |
+
+> The live dashboard is behind WorkOS sign-in, and only the admin's email is mapped to a user, so
+> visitors see the sign-in page. The live API runs on Render's free tier: it sleeps when idle (the
+> first request can take ~1 minute), its data resets on restart, and it has no AI model, so the
+> intent check runs in rules-only mode. The AI features run locally (see "Run it").
+
+## Results at a glance
+
+- **Prompt injection stopped on the first refund.** A real LLM agent (llama3.2, run locally) was
+  told by fake "admin" text to issue ten ₹2,000 refunds. The AI intent check sent the first one to a
+  human; **no money moved**.
+- **Refund loops frozen** on the 3rd call at machine speed, and on the 4th at LLM speed.
+- **WorkOS, tested live:** AuthKit login, Audit Logs (every decision appears in WorkOS), and Agent
+  Auth (a real agent token accepted; on freeze, AgentGuard revoked the agent's WorkOS session).
+- **Deployed** (Render + Vercel), **Dockerised**, **CI on every push**, 57 tests.
+
+## What it does
 
 Most AI agents today run on one shared API key with full access. When an agent loops, gets
 prompt-injected or simply misreads a task, nothing stops it. AgentGuard sits in front of every tool
-call an agent makes and answers four questions:
+call an agent makes and answers five questions:
 
 1. **On whose behalf?** Every agent is launched by a real person and can never do more than that
    person's role allows (agent scopes ∩ user role).
@@ -104,7 +129,7 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
  AI agent / MCP client ──► MCP server (mcp_server/) ──► POST /v1/check ──► Guard
                                                                            │
                          1. frozen?  2. delegation  3. budget  4. call limit
-                         5. anomaly (Isolation Forest)  6. approval threshold
+                         5. anomaly (Isolation Forest)  6. AI intent check  7. approval threshold
                                                                            │
                         SQLite audit trail ◄──────────────────────────────┤
                         WorkOS Audit Logs  ◄──────────────────────────────┘
@@ -129,6 +154,9 @@ A refund loop at 2 calls/second is stopped at the 3rd call. Unchecked for an hou
 | `agent/run_agent.py` | A real LLM agent (local Ollama model) using the guarded MCP server |
 | `agentguard/intent.py` | AI intent check: rule pre-check + swappable AI judge |
 | `agentguard/copilot.py` | Incident copilot: facts from code, explanation from AI |
+| `scripts/seed_live_demo.py` | Plays the demo story against a deployed AgentGuard |
+| `scripts/test_workos_agent_auth.py` | Live WorkOS Agent Auth test |
+| `render.yaml`, `Dockerfile`, `docker-compose.yml` | Deployment |
 
 ## Run it
 
@@ -173,9 +201,7 @@ event metadata). With `WORKOS_ORGANIZATION_ID` set, every AgentGuard decision th
 WorkOS under Organizations → your organization → Audit Logs, with the agent as the actor.
 
 Without WorkOS keys the API runs in dev mode: pick the human with an `X-User-Id` header
-(`priya`, `arjun`, `meera`). To use WorkOS, copy `.env.example` to `.env`, add your keys from
-the WorkOS dashboard, and set each user's `email` in `config/policies.json`. For Audit Logs, also
-create event schemas such as `agent.issue_refund.deny` in the dashboard.
+(`priya`, `arjun`, `meera`), or use the "Acting as" picker in the dashboard.
 
 To use the MCP server from an MCP client, point it at `python mcp_server/server.py` (stdio) with
 `AGENTGUARD_URL=http://localhost:8000` and `AGENTGUARD_AGENT_KEY=<the agent's key>`.
@@ -183,8 +209,9 @@ To use the MCP server from an MCP client, point it at `python mcp_server/server.
 ## Deploy
 
 - `docker compose up --build` runs the API and dashboard together locally.
-- Cloud: API on Render (`render.yaml`), dashboard on Vercel. Step by step in
-  [docs/DEPLOY.md](docs/DEPLOY.md). In the cloud there's no local model, so `AGENTGUARD_JUDGE=rules`.
+- Cloud: API on Render (`render.yaml`), dashboard on Vercel, live at
+  https://agentguard-liard.vercel.app. Step by step in [docs/DEPLOY.md](docs/DEPLOY.md). In the
+  cloud there's no local model, so `AGENTGUARD_JUDGE=rules`.
 - CI (GitHub Actions) runs the tests, dashboard lint/type-check/build, and both Docker builds.
 - Recording the demo: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
@@ -220,5 +247,6 @@ To use the MCP server from an MCP client, point it at `python mcp_server/server.
   (tokens accepted, session revoked on freeze) ✅, all tested live.
 - **Week 3 (done early):** Next.js dashboard with live audit feed, approve/reject buttons, frozen
   agents with an unfreeze button, spend per agent, key management.
-- **Week 4:** real LLM agent through the MCP server ✅ (local Ollama). Still to do: record the 90-second demo, deploy
-  (Render + Vercel), write the README story and the blog post, then send the cold emails.
+- **Week 4:** real LLM agent through the MCP server ✅ (local Ollama), AI intent check ✅, incident
+  copilot ✅, Docker + CI ✅, deployed on Render + Vercel ✅. Still to do: record the 90-second demo
+  video, write a short blog post, send the cold emails.
